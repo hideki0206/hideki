@@ -30,14 +30,25 @@ jobs:
           CHATWORK_ROOM_ID: ${{ secrets.CHATWORK_ROOM_ID }}
         run: python main.py scrape
 
-      - name: Save generated posts via GitHub API
+      - name: Save generated posts to data branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CONTENT=$(base64 -w 0 generated_posts.json)
+          # dataブランチがなければ作成
+          MAIN_SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/main" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['object']['sha'])")
+          curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"ref\":\"refs/heads/data\",\"sha\":\"$MAIN_SHA\"}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs" > /dev/null || true
+
+          # 既存ファイルのSHAを取得
           SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts.json?ref=data" \
-            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('sha',''))" 2>/dev/null || echo "")
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
+
+          CONTENT=$(base64 -w 0 generated_posts.json)
 
           if [ -n "$SHA" ]; then
             PAYLOAD="{\"message\":\"Update generated posts\",\"content\":\"$CONTENT\",\"branch\":\"data\",\"sha\":\"$SHA\"}"
