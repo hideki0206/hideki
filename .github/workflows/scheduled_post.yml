@@ -18,6 +18,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Get generated posts from data branch
+        run: |
+          git fetch origin data
+          git checkout origin/data -- generated_posts.json
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -29,12 +36,6 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
           playwright install-deps chromium
-
-      - name: Download generated posts
-        uses: actions/download-artifact@v4
-        with:
-          name: generated-posts
-        continue-on-error: true
 
       - name: Determine time slot
         id: slot

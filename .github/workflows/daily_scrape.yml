@@ -30,9 +30,15 @@ jobs:
           CHATWORK_ROOM_ID: ${{ secrets.CHATWORK_ROOM_ID }}
         run: python main.py scrape
 
-      - name: Save generated posts as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-posts
-          path: generated_posts.json
-          retention-days: 1
+      - name: Save generated posts to data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin data 2>/dev/null || git checkout --orphan data && git rm -rf . --quiet 2>/dev/null || true
+          git checkout data 2>/dev/null || true
+          cp generated_posts.json /tmp/generated_posts.json
+          git checkout data -- . 2>/dev/null || (git checkout --orphan data && git rm -rf . --quiet)
+          cp /tmp/generated_posts.json generated_posts.json
+          git add generated_posts.json
+          git commit -m "Update generated posts $(date -u '+%Y-%m-%d %H:%M')" || echo "No changes"
+          git push origin data
