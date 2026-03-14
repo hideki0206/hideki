@@ -1,11 +1,10 @@
 import os
 
 # 自分のThreadsアカウント
-MY_ACCOUNT = "@hideki0206"
+MY_ACCOUNT = "@salon.marketing"
 
 # 競合アカウント（後で追加可能）
 COMPETITOR_ACCOUNTS = [
-    "@salon.marketing",
     # "@account2",  # 後で追加
     # "@account3",  # 後で追加
 ]
