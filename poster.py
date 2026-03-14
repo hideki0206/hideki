@@ -105,14 +105,7 @@ async def post_to_threads_async(text: str) -> str:
             text_area = await page.wait_for_selector('[contenteditable="true"]', timeout=10000)
             await text_area.click()
             await page.wait_for_timeout(500)
-            # JavaScriptで直接値をセットしてInputイベントを発火
-            await page.evaluate("""
-                el => {
-                    el.focus();
-                    document.execCommand('selectAll', false, null);
-                    document.execCommand('insertText', false, arguments[1]);
-                }
-            """, text_area, text)
+            await page.keyboard.type(text)
             await page.wait_for_timeout(1000)
 
             # 投稿ボタン
