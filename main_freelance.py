@@ -72,8 +72,9 @@ def cmd_post(time_slot: str):
 
     print(f"=== {time_slot} 投稿開始（@hideki0206）===")
     try:
-        post_id = post_to_threads(approved_slot["text"])
-        send_post_result(time_slot, True, approved_slot["text"])
+        post_text = f"{approved_slot['theme']}\n\n{approved_slot['text']}"
+        post_id = post_to_threads(post_text)
+        send_post_result(time_slot, True, post_text)
         print(f"投稿完了: {post_id}")
     except Exception as e:
         send_post_result(time_slot, False)
