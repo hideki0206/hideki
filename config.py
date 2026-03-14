@@ -27,9 +27,9 @@ CHATWORK_ROOM_ID = os.environ.get("CHATWORK_ROOM_ID", "")
 # Claude API
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
-# Threads API（Meta Developer）
-THREADS_ACCESS_TOKEN = os.environ.get("THREADS_ACCESS_TOKEN", "")
-THREADS_USER_ID = os.environ.get("THREADS_USER_ID", "")
+# Threads ログイン情報
+THREADS_USERNAME = os.environ.get("THREADS_USERNAME", "")
+THREADS_PASSWORD = os.environ.get("THREADS_PASSWORD", "")
 
 # スクレイピング設定
 SCRAPE_POST_LIMIT = 20  # 1アカウントあたり取得する投稿数
