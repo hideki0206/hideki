@@ -108,34 +108,22 @@ async def post_to_threads_async(text: str) -> str:
             await page.keyboard.type(text)
             await page.wait_for_timeout(1000)
 
-            # 投稿ボタン
-            print("投稿ボタンを押しています...")
-            submit_selectors = [
-                '[data-testid="tray-button-post"]',
-                'button:has-text("Post")',
-                'button:has-text("投稿")',
-                'div[role="button"]:has-text("Post")',
-                'div[role="button"]:has-text("投稿")',
-            ]
-            submit_btn = None
-            for sel in submit_selectors:
-                try:
-                    submit_btn = await page.wait_for_selector(sel, timeout=3000)
-                    if submit_btn:
-                        print(f"送信ボタン発見: {sel}")
-                        break
-                except Exception:
-                    continue
-
-            if not submit_btn:
-                raise Exception("送信ボタンが見つかりませんでした")
-
             # スクリーンショット（デバッグ用）
             await page.screenshot(path="before_post.png")
             print("スクリーンショット保存: before_post.png")
 
-            # force=Trueでオーバーレイを無視してクリック
-            await submit_btn.click(force=True)
+            # 投稿ボタン（locatorで確実にクリック）
+            print("投稿ボタンを押しています...")
+            post_locator = page.get_by_role("button", name="Post")
+            count = await post_locator.count()
+            print(f"Postボタン数: {count}")
+            if count > 0:
+                await post_locator.last.click(force=True)
+                print("Postボタンをクリック")
+            else:
+                # キーボードショートカットで送信を試みる
+                print("キーボードショートカットで送信")
+                await text_area.press("Control+Return")
             await page.wait_for_timeout(5000)
 
             await page.screenshot(path="after_post.png")
