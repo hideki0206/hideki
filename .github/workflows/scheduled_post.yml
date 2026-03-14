@@ -18,13 +18,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
 
-      - name: Get generated posts from data branch
+      - name: Download generated posts via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git fetch origin data
-          git checkout origin/data -- generated_posts.json
+          curl -s -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts.json?ref=data" \
+            -o generated_posts.json
+          echo "ダウンロード完了"
+          cat generated_posts.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'{len(d)}件の投稿を取得')"
 
       - name: Set up Python
         uses: actions/setup-python@v5
