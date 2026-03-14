@@ -59,6 +59,7 @@ jobs:
           CHATWORK_ROOM_ID: ${{ secrets.CHATWORK_ROOM_ID }}
           THREADS_USERNAME: ${{ secrets.THREADS_USERNAME }}
           THREADS_PASSWORD: ${{ secrets.THREADS_PASSWORD }}
+          THREADS_SESSION: ${{ secrets.THREADS_SESSION }}
         run: |
           SLOT="${{ github.event.inputs.time_slot || steps.slot.outputs.slot }}"
           python main.py post $SLOT

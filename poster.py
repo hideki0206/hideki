@@ -1,64 +1,67 @@
 import asyncio
+import json
+import base64
+import os
 from playwright.async_api import async_playwright
 from config import THREADS_USERNAME, THREADS_PASSWORD
+
+THREADS_SESSION = os.environ.get("THREADS_SESSION", "")
 
 
 async def post_to_threads_async(text: str) -> str:
     """PlaywrightでThreadsにログインして投稿"""
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800},
-        )
+
+        # セッションCookieがあれば使用
+        if THREADS_SESSION:
+            print("保存済みセッションを使用します")
+            storage = json.loads(base64.b64decode(THREADS_SESSION).decode())
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+                storage_state=storage,
+            )
+        else:
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+            )
+
         page = await context.new_page()
 
         try:
-            print("Threadsにアクセス中...")
-            await page.goto("https://www.threads.com/login", wait_until="domcontentloaded", timeout=60000)
-            await page.wait_for_timeout(3000)
-
-            print(f"ページタイトル: {await page.title()}")
-
-            # ユーザー名入力
-            username_input = await page.wait_for_selector('input[type="text"]', timeout=15000)
-            await username_input.fill(THREADS_USERNAME)
-            await page.wait_for_timeout(500)
-
-            # パスワード入力
-            password_input = await page.wait_for_selector('input[type="password"]', timeout=10000)
-            await password_input.fill(THREADS_PASSWORD)
-            await page.wait_for_timeout(500)
-
-            # ログインボタン（複数のセレクタを試行）
-            print("ログインボタンを探しています...")
-            login_btn = None
-            selectors = [
-                'button[type="submit"]',
-                'button:has-text("Log in")',
-                'button:has-text("ログイン")',
-                'div[role="button"]:has-text("Log in")',
-                'div[role="button"]:has-text("ログイン")',
-            ]
-            for sel in selectors:
-                try:
-                    login_btn = await page.wait_for_selector(sel, timeout=3000)
-                    if login_btn:
-                        print(f"ログインボタン発見: {sel}")
-                        break
-                except Exception:
-                    continue
-
-            if login_btn:
-                await login_btn.click()
+            # セッションがあればホームへ直接アクセス、なければログイン
+            if THREADS_SESSION:
+                print("ホームにアクセス中...")
+                await page.goto("https://www.threads.com", wait_until="domcontentloaded", timeout=60000)
+                await page.wait_for_timeout(3000)
+                print(f"URL: {page.url}")
             else:
-                # Enterキーで送信
-                print("ボタンが見つからないためEnterキーで送信")
-                await password_input.press("Enter")
+                print("Threadsにアクセス中...")
+                await page.goto("https://www.threads.com/login", wait_until="domcontentloaded", timeout=60000)
+                await page.wait_for_timeout(3000)
 
-            print("ログイン処理中...")
-            await page.wait_for_timeout(8000)
-            print(f"ログイン後URL: {page.url}")
+                username_input = await page.wait_for_selector('input[type="text"]', timeout=15000)
+                await username_input.fill(THREADS_USERNAME)
+                password_input = await page.wait_for_selector('input[type="password"]', timeout=10000)
+                await password_input.fill(THREADS_PASSWORD)
+
+                login_btn = None
+                for sel in ['button[type="submit"]', 'div[role="button"]:has-text("Log in")', 'div[role="button"]:has-text("ログイン")']:
+                    try:
+                        login_btn = await page.wait_for_selector(sel, timeout=3000)
+                        if login_btn:
+                            await login_btn.click()
+                            break
+                    except Exception:
+                        continue
+
+                if not login_btn:
+                    await password_input.press("Enter")
+
+                await page.wait_for_timeout(8000)
+                print(f"ログイン後URL: {page.url}")
 
             # 投稿ボタンを探す
             print("投稿ボタンを探しています...")
