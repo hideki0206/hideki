@@ -60,16 +60,34 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
     )
 
     text = response.content[0].text
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
-        data = json.loads(match.group())
+
+    # ```json ... ``` ブロックを優先して抽出
+    code_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    raw = code_match.group(1) if code_match else None
+
+    # なければ最初の { から最後の } を抽出
+    if not raw:
+        start = text.find('{')
+        end = text.rfind('}')
+        if start != -1 and end != -1:
+            raw = text[start:end + 1]
+
+    if raw:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            # 制御文字を除去して再試行
+            raw = re.sub(r'[\x00-\x1f\x7f](?<![\n\t])', '', raw)
+            data = json.loads(raw)
+
         posts = []
         for time_slot, content in data.items():
-            posts.append({
-                "time_slot": time_slot,
-                "text": content["text"],
-                "theme": content.get("theme", ""),
-            })
+            if time_slot in ("morning", "noon", "evening"):
+                posts.append({
+                    "time_slot": time_slot,
+                    "text": content["text"],
+                    "theme": content.get("theme", ""),
+                })
         return posts
 
     return []
