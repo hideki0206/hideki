@@ -108,10 +108,6 @@ async def post_to_threads_async(text: str) -> str:
             await page.keyboard.type(text)
             await page.wait_for_timeout(1000)
 
-            # スクリーンショット（デバッグ用）
-            await page.screenshot(path="before_post.png")
-            print("スクリーンショット保存: before_post.png")
-
             # 投稿ボタン（locatorで確実にクリック）
             print("投稿ボタンを押しています...")
             post_locator = page.get_by_role("button", name="Post")
@@ -119,15 +115,11 @@ async def post_to_threads_async(text: str) -> str:
             print(f"Postボタン数: {count}")
             if count > 0:
                 await post_locator.last.click(force=True)
-                print("Postボタンをクリック")
             else:
                 # キーボードショートカットで送信を試みる
                 print("キーボードショートカットで送信")
                 await text_area.press("Control+Return")
             await page.wait_for_timeout(5000)
-
-            await page.screenshot(path="after_post.png")
-            print("スクリーンショット保存: after_post.png")
             print("投稿完了")
             return "posted"
 
