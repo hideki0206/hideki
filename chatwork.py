@@ -11,7 +11,7 @@ HEADERS = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
 
 def send_posts_for_approval(posts: list[dict]) -> str:
     """生成された投稿をChatWorkに送信して承認を求める"""
-    lines = ["[投稿案] 本日のThreads投稿です。各投稿に「承認」または「修正：〇〇」と返信してください。\n"]
+    lines = ["[To:909701] [投稿案] 本日のThreads投稿です。各投稿に「承認」または「修正：〇〇」と返信してください。\n"]
 
     for i, post in enumerate(posts, 1):
         slot_label = {"morning": "🌅 朝（7:00）", "noon": "☀️ 昼（12:00）", "evening": "🌙 夜（19:00）"}.get(post["time_slot"], post["time_slot"])
