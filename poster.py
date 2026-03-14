@@ -129,7 +129,8 @@ async def post_to_threads_async(text: str) -> str:
             if not submit_btn:
                 raise Exception("送信ボタンが見つかりませんでした")
 
-            await submit_btn.click()
+            # オーバーレイに遮られる場合はJavaScriptでクリック
+            await page.evaluate("el => el.click()", submit_btn)
             await page.wait_for_timeout(5000)
             print("投稿完了")
             return "posted"
