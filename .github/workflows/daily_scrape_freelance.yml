@@ -1,0 +1,67 @@
+name: Daily Scrape & Generate (Freelance)
+
+on:
+  schedule:
+    - cron: '0 21 * * *'  # 毎日06:00 JST（UTC+9）
+  workflow_dispatch:  # 手動実行も可能
+
+jobs:
+  scrape-and-generate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run scrape and generate
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CHATWORK_API_TOKEN: ${{ secrets.CHATWORK_API_TOKEN }}
+          CHATWORK_ROOM_ID_2: ${{ secrets.CHATWORK_ROOM_ID_2 }}
+          THREADS_SESSION_2: ${{ secrets.THREADS_SESSION_2 }}
+        run: python main_freelance.py scrape
+
+      - name: Save generated posts to data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # dataブランチがなければ作成
+          MAIN_SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs/heads/main" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['object']['sha'])")
+          curl -s -X POST -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"ref\":\"refs/heads/data\",\"sha\":\"$MAIN_SHA\"}" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs" > /dev/null || true
+
+          # 既存ファイルのSHAを取得
+          SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts_freelance.json?ref=data" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
+
+          CONTENT=$(base64 -w 0 generated_posts_freelance.json)
+
+          if [ -n "$SHA" ]; then
+            PAYLOAD="{\"message\":\"Update freelance posts\",\"content\":\"$CONTENT\",\"branch\":\"data\",\"sha\":\"$SHA\"}"
+          else
+            PAYLOAD="{\"message\":\"Update freelance posts\",\"content\":\"$CONTENT\",\"branch\":\"data\"}"
+          fi
+
+          RESULT=$(curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts_freelance.json")
+          echo "APIレスポンス: $RESULT"
+          echo "保存完了"

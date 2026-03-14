@@ -1,0 +1,65 @@
+name: Scheduled Post to Threads (Freelance)
+
+on:
+  schedule:
+    - cron: '0 22 * * *'   # 朝07:00 JST
+    - cron: '0 3 * * *'    # 昼12:00 JST
+    - cron: '0 10 * * *'   # 夜19:00 JST
+  workflow_dispatch:
+    inputs:
+      time_slot:
+        description: '投稿スロット (morning/noon/evening)'
+        required: true
+        default: 'morning'
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download generated posts via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts_freelance.json?ref=data" \
+            -o generated_posts_freelance.json
+          echo "ダウンロード完了"
+          cat generated_posts_freelance.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'{len(d)}件の投稿を取得')"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Determine time slot
+        id: slot
+        run: |
+          HOUR=$(TZ=Asia/Tokyo date +%H)
+          if [ "$HOUR" = "07" ]; then
+            echo "slot=morning" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" = "12" ]; then
+            echo "slot=noon" >> $GITHUB_OUTPUT
+          else
+            echo "slot=evening" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post to Threads
+        env:
+          CHATWORK_API_TOKEN: ${{ secrets.CHATWORK_API_TOKEN }}
+          CHATWORK_ROOM_ID_2: ${{ secrets.CHATWORK_ROOM_ID_2 }}
+          THREADS_USERNAME_2: ${{ secrets.THREADS_USERNAME_2 }}
+          THREADS_PASSWORD_2: ${{ secrets.THREADS_PASSWORD_2 }}
+          THREADS_SESSION_2: ${{ secrets.THREADS_SESSION_2 }}
+        run: |
+          SLOT="${{ github.event.inputs.time_slot || steps.slot.outputs.slot }}"
+          python main_freelance.py post $SLOT
