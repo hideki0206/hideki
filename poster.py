@@ -134,8 +134,8 @@ async def post_to_threads_async(text: str) -> str:
             await page.screenshot(path="before_post.png")
             print("スクリーンショット保存: before_post.png")
 
-            # オーバーレイに遮られる場合はJavaScriptでクリック
-            await page.evaluate("el => el.click()", submit_btn)
+            # force=Trueでオーバーレイを無視してクリック
+            await submit_btn.click(force=True)
             await page.wait_for_timeout(5000)
 
             await page.screenshot(path="after_post.png")
