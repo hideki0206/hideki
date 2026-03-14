@@ -63,3 +63,11 @@ jobs:
         run: |
           SLOT="${{ github.event.inputs.time_slot || steps.slot.outputs.slot }}"
           python main.py post $SLOT
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: "*.png"
+          retention-days: 1
