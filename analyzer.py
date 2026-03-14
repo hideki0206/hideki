@@ -53,32 +53,30 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
 }}
 """
 
-    # prefillでJSONのみを返させる
     response = client.messages.create(
         model="claude-opus-4-6",
         max_tokens=2000,
-        messages=[
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": "{"},
-        ]
+        system="あなたはJSONのみを返すアシスタントです。説明文・前置き・コードブロックは一切不要です。JSONオブジェクトだけを返してください。",
+        messages=[{"role": "user", "content": prompt}]
     )
 
-    # prefillの"{" + レスポンスを結合してパース
-    text = "{" + response.content[0].text
+    text = response.content[0].text.strip()
+
+    # 最初の{から最後の}を抽出
+    start = text.find('{')
+    end = text.rfind('}')
+    if start == -1 or end == -1:
+        return []
+
+    raw = text[start:end + 1]
+    # 制御文字（改行・タブ以外）を除去
+    raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', raw)
 
     try:
-        data = json.loads(text)
+        data = json.loads(raw)
     except json.JSONDecodeError:
-        # 最初の{から最後の}を抽出して再試行
-        start = text.find('{')
-        end = text.rfind('}')
-        if start != -1 and end != -1:
-            raw = text[start:end + 1]
-            # 制御文字（改行・タブ以外）を除去
-            raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', raw)
-            data = json.loads(raw)
-        else:
-            return []
+        print(f"JSONパースエラー。レスポンス: {raw[:200]}")
+        return []
 
     posts = []
     for time_slot, content in data.items():
