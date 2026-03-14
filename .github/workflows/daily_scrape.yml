@@ -8,6 +8,8 @@ on:
 jobs:
   scrape-and-generate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -56,8 +58,9 @@ jobs:
             PAYLOAD="{\"message\":\"Update generated posts\",\"content\":\"$CONTENT\",\"branch\":\"data\"}"
           fi
 
-          curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+          RESULT=$(curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts.json"
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts.json")
+          echo "APIレスポンス: $RESULT"
           echo "保存完了"
