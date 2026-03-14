@@ -53,44 +53,42 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
 }}
 """
 
+    # prefillでJSONのみを返させる
     response = client.messages.create(
         model="claude-opus-4-6",
         max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": "{"},
+        ]
     )
 
-    text = response.content[0].text
+    # prefillの"{" + レスポンスを結合してパース
+    text = "{" + response.content[0].text
 
-    # ```json ... ``` ブロックを優先して抽出
-    code_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-    raw = code_match.group(1) if code_match else None
-
-    # なければ最初の { から最後の } を抽出
-    if not raw:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # 最初の{から最後の}を抽出して再試行
         start = text.find('{')
         end = text.rfind('}')
         if start != -1 and end != -1:
             raw = text[start:end + 1]
-
-    if raw:
-        try:
+            # 制御文字（改行・タブ以外）を除去
+            raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', raw)
             data = json.loads(raw)
-        except json.JSONDecodeError:
-            # 制御文字を除去して再試行
-            raw = re.sub(r'[\x00-\x1f\x7f](?<![\n\t])', '', raw)
-            data = json.loads(raw)
+        else:
+            return []
 
-        posts = []
-        for time_slot, content in data.items():
-            if time_slot in ("morning", "noon", "evening"):
-                posts.append({
-                    "time_slot": time_slot,
-                    "text": content["text"],
-                    "theme": content.get("theme", ""),
-                })
-        return posts
-
-    return []
+    posts = []
+    for time_slot, content in data.items():
+        if time_slot in ("morning", "noon", "evening"):
+            posts.append({
+                "time_slot": time_slot,
+                "text": content["text"],
+                "theme": content.get("theme", ""),
+            })
+    return posts
 
 
 def save_generated_posts(posts: list[dict], filepath: str = "generated_posts.json"):
