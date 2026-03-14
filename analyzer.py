@@ -69,13 +69,34 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
         return []
 
     raw = text[start:end + 1]
-    # 制御文字（改行・タブ以外）を除去
-    raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', raw)
+
+    # 文字列値内の改行・タブをエスケープ（JSON的に無効な生改行を修正）
+    def fix_json_strings(s):
+        result = []
+        in_string = False
+        i = 0
+        while i < len(s):
+            c = s[i]
+            if c == '"' and (i == 0 or s[i-1] != '\\'):
+                in_string = not in_string
+                result.append(c)
+            elif in_string and c == '\n':
+                result.append('\\n')
+            elif in_string and c == '\r':
+                result.append('\\r')
+            elif in_string and c == '\t':
+                result.append('\\t')
+            else:
+                result.append(c)
+            i += 1
+        return ''.join(result)
+
+    raw = fix_json_strings(raw)
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        print(f"JSONパースエラー。レスポンス: {raw[:200]}")
+        print(f"JSONパースエラー。レスポンス: {raw[:300]}")
         return []
 
     posts = []
