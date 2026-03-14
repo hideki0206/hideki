@@ -36,77 +36,47 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
 - 各投稿は500文字以内
 - エンゲージメントを高める内容（質問・共感・有益情報）
 
-以下のJSON形式で返してください：
-{{
-  "morning": {{
-    "text": "朝の投稿文",
-    "theme": "テーマ"
-  }},
-  "noon": {{
-    "text": "昼の投稿文",
-    "theme": "テーマ"
-  }},
-  "evening": {{
-    "text": "夜の投稿文",
-    "theme": "テーマ"
-  }}
-}}
+以下の形式で出力してください（この形式を厳守してください）：
+
+===MORNING===
+THEME: テーマ
+TEXT:
+朝の投稿文
+
+===NOON===
+THEME: テーマ
+TEXT:
+昼の投稿文
+
+===EVENING===
+THEME: テーマ
+TEXT:
+夜の投稿文
 """
 
     response = client.messages.create(
         model="claude-opus-4-6",
         max_tokens=2000,
-        system="あなたはJSONのみを返すアシスタントです。説明文・前置き・コードブロックは一切不要です。JSONオブジェクトだけを返してください。",
         messages=[{"role": "user", "content": prompt}]
     )
 
     text = response.content[0].text.strip()
 
-    # 最初の{から最後の}を抽出
-    start = text.find('{')
-    end = text.rfind('}')
-    if start == -1 or end == -1:
-        return []
-
-    raw = text[start:end + 1]
-
-    # 文字列値内の改行・タブをエスケープ（JSON的に無効な生改行を修正）
-    def fix_json_strings(s):
-        result = []
-        in_string = False
-        i = 0
-        while i < len(s):
-            c = s[i]
-            if c == '"' and (i == 0 or s[i-1] != '\\'):
-                in_string = not in_string
-                result.append(c)
-            elif in_string and c == '\n':
-                result.append('\\n')
-            elif in_string and c == '\r':
-                result.append('\\r')
-            elif in_string and c == '\t':
-                result.append('\\t')
-            else:
-                result.append(c)
-            i += 1
-        return ''.join(result)
-
-    raw = fix_json_strings(raw)
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        print(f"JSONパースエラー。レスポンス: {raw[:300]}")
-        return []
-
     posts = []
-    for time_slot, content in data.items():
-        if time_slot in ("morning", "noon", "evening"):
+    for slot in ("morning", "noon", "evening"):
+        pattern = rf'==={slot.upper()}===\s*THEME:\s*(.+?)\s*TEXT:\s*(.*?)(?====|\Z)'
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        if match:
+            theme = match.group(1).strip()
+            post_text = match.group(2).strip()
             posts.append({
-                "time_slot": time_slot,
-                "text": content["text"],
-                "theme": content.get("theme", ""),
+                "time_slot": slot,
+                "text": post_text,
+                "theme": theme,
             })
+        else:
+            print(f"{slot} のパースに失敗")
+
     return posts
 
 
