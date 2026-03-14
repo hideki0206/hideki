@@ -100,11 +100,19 @@ async def post_to_threads_async(text: str) -> str:
             await new_post_btn.click()
             await page.wait_for_timeout(2000)
 
-            # テキスト入力
+            # テキスト入力（Reactのcontenteditable対応）
             print("テキストを入力中...")
             text_area = await page.wait_for_selector('[contenteditable="true"]', timeout=10000)
             await text_area.click()
-            await text_area.fill(text)
+            await page.wait_for_timeout(500)
+            # JavaScriptで直接値をセットしてInputイベントを発火
+            await page.evaluate("""
+                el => {
+                    el.focus();
+                    document.execCommand('selectAll', false, null);
+                    document.execCommand('insertText', false, arguments[1]);
+                }
+            """, text_area, text)
             await page.wait_for_timeout(1000)
 
             # 投稿ボタン
