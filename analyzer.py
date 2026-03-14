@@ -1,7 +1,7 @@
 import anthropic
 import json
 import re
-from config import ANTHROPIC_API_KEY, MY_ACCOUNT
+from config import ANTHROPIC_API_KEY, MY_ACCOUNT, REFERENCE_POSTS
 
 
 def analyze_and_generate(scraped_data: dict) -> list[dict]:
@@ -19,10 +19,12 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
             texts = "\n".join([f"  - {p['text']}" for p in posts[:10]])
             competitor_texts += f"\n【{account}】\n{texts}\n"
 
+    reference_texts = "\n\n---\n".join(REFERENCE_POSTS[:6])  # 上位6本を使用
+
     prompt = f"""あなたはSNSマーケティングの専門家です。
 
-【自分（{MY_ACCOUNT}）の過去投稿スタイル】
-{my_texts}
+【過去に反応が良かった投稿（このスタイルを最優先で参考にすること）】
+{reference_texts}
 
 【競合アカウントの投稿（トレンド分析用）】
 {competitor_texts}
@@ -30,11 +32,14 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
 上記を分析して、以下の条件でThreads投稿文を3本作成してください：
 
 条件：
-- 自分のトーン・スタイルを維持する
+- 「過去に反応が良かった投稿」のトーン・構成・言葉遣いを忠実に再現する
+- 語りかけるような口語体（〜です、〜ますより「〜だよね」「〜してみてください」）
+- 具体的な数字や事例を入れる（リピート率80%、月50万など）
+- 読者の悩みに共感してから解決策を提示する流れ
+- 最後に行動を促すCTA（「プロフをチェックしてね」等）を入れる
 - 競合のトレンドテーマを取り入れる
 - 朝・昼・夜それぞれに適した内容にする
-- 各投稿は500文字以内
-- エンゲージメントを高める内容（質問・共感・有益情報）
+- 各投稿は300〜500文字
 
 以下の形式で出力してください（この形式を厳守してください）：
 
