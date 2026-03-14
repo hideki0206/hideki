@@ -12,10 +12,15 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
     my_posts = scraped_data.get(MY_ACCOUNT.lstrip("@"), [])
     my_texts = "\n".join([f"- {p['text']}" for p in my_posts[:15]])
 
-    # 競合の投稿
+    # 競合・キーワード検索の投稿
     competitor_texts = ""
     for account, posts in scraped_data.items():
-        if account != MY_ACCOUNT.lstrip("@"):
+        if account == MY_ACCOUNT.lstrip("@"):
+            continue
+        if account == "__keyword_search__":
+            texts = "\n".join([f"  - [{p.get('keyword','')}] {p['text']}" for p in posts[:15]])
+            competitor_texts += f"\n【キーワード検索（反応の良い投稿）】\n{texts}\n"
+        else:
             texts = "\n".join([f"  - {p['text']}" for p in posts[:10]])
             competitor_texts += f"\n【{account}】\n{texts}\n"
 

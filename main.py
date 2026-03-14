@@ -16,13 +16,23 @@ POSTS_FILE = "generated_posts.json"
 
 
 def cmd_scrape():
-    from scraper import scrape_all_accounts, save_results
+    from scraper import scrape_all_accounts, scrape_by_keyword, save_results
     from analyzer import analyze_and_generate, save_generated_posts
     from chatwork import send_posts_for_approval
-    from config import ALL_ACCOUNTS, SCRAPE_POST_LIMIT
+    from config import ALL_ACCOUNTS, SCRAPE_POST_LIMIT, SEARCH_KEYWORDS
 
     print("=== スクレイピング開始 ===")
     results = asyncio.run(scrape_all_accounts(ALL_ACCOUNTS, SCRAPE_POST_LIMIT))
+
+    print("\n=== キーワード検索（反応の良い投稿）===")
+    keyword_posts = []
+    for kw in SEARCH_KEYWORDS:
+        print(f"検索中: {kw}")
+        posts = asyncio.run(scrape_by_keyword(kw, limit=10))
+        keyword_posts.extend(posts)
+        print(f"  → {len(posts)}件取得")
+    results["__keyword_search__"] = keyword_posts
+
     save_results(results, "scraped_posts.json")
 
     print("\n=== 投稿生成開始 ===")

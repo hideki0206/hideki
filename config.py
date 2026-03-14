@@ -33,6 +33,13 @@ THREADS_PASSWORD = os.environ.get("THREADS_PASSWORD", "")
 # スクレイピング設定
 SCRAPE_POST_LIMIT = 20  # 1アカウントあたり取得する投稿数
 
+# トレンド調査用キーワード
+SEARCH_KEYWORDS = [
+    "サロン集客",
+    "サロン経営",
+    "個人サロン",
+]
+
 # 反応が良かった過去投稿（プロンプトの参考用）
 REFERENCE_POSTS = [
     """リピート率90%超えのサロンがやってる接客
