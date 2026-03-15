@@ -230,25 +230,40 @@ async def post_thread_to_threads_async(parts: list) -> str:
                 print(f"  クリック後のcontenteditable数: {len(new_areas)}")
 
                 # 新しく追加された（空の）contenteditableに入力
+                # Reactのイベントハンドラが完全にマウントされるまで待機
+                await page.wait_for_timeout(1500)
                 new_area = new_areas[-1]
                 await new_area.click()
                 await page.wait_for_timeout(500)
-                await page.keyboard.type(part)
-                await page.wait_for_timeout(800)
+                # delay=30 でReactのonChange が各文字を正しく処理できるようにする
+                await page.keyboard.type(part, delay=30)
+                await page.wait_for_timeout(1000)
 
             await page.screenshot(path="/tmp/threads_before_post.png")
             print("投稿ボタンを押しています...")
 
-            # 投稿ボタン: 日本語「投稿」または英語「Post」
+            # 投稿ボタン: モーダル内の「Post」ボタンを正確に探す
+            # force=True は使わない（背景ボタンを誤クリックする可能性があるため）
             posted = False
             for btn_text in ["投稿", "Post"]:
-                btn = page.get_by_text(btn_text, exact=True)
+                btn = page.get_by_role("button", name=btn_text, exact=True)
                 count = await btn.count()
+                print(f"  role=button name='{btn_text}' の数: {count}")
                 if count > 0:
-                    await btn.last.click(force=True)
+                    await btn.last.click()
                     posted = True
                     print(f"  投稿ボタン '{btn_text}' をクリック")
                     break
+
+            if not posted:
+                # fallback: テキストで探す
+                for btn_text in ["投稿", "Post"]:
+                    btn = page.get_by_text(btn_text, exact=True)
+                    if await btn.count() > 0:
+                        await btn.last.click()
+                        posted = True
+                        print(f"  fallback クリック '{btn_text}'")
+                        break
 
             if not posted:
                 text_areas = await page.query_selector_all('[contenteditable="true"]')
