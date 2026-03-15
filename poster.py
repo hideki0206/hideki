@@ -141,12 +141,16 @@ async def post_to_threads_async(text: str) -> str:
             await page.wait_for_timeout(1000)
 
             print("投稿ボタンを押しています...")
-            post_btn = page.get_by_text("投稿", exact=True)
-            count = await post_btn.count()
-            if count > 0:
-                await post_btn.last.click(force=True)
-            else:
-                await text_area.press("Control+Return")
+            posted = False
+            for btn_text in ["投稿", "Post"]:
+                btn = page.get_by_text(btn_text, exact=True)
+                count = await btn.count()
+                if count > 0:
+                    await btn.last.click(force=True)
+                    posted = True
+                    break
+            if not posted:
+                await text_area.press("Control+Enter")
             await page.wait_for_timeout(5000)
             print("投稿完了")
             return "posted"
@@ -190,48 +194,71 @@ async def post_thread_to_threads_async(parts: list) -> str:
             for i, part in enumerate(parts[1:], start=2):
                 print(f"パート{i}を追加中...")
 
-                # 「スレッドに追加」を複数の方法で探す
-                add_btn = None
-                add_selectors = [
-                    'text="スレッドに追加"',
-                    'text="Add to thread"',
-                    '[placeholder*="スレッドに追加"]',
-                    '[placeholder*="Add to thread"]',
-                    'div:has-text("スレッドに追加") >> nth=-1',
-                ]
-                for sel in add_selectors:
-                    try:
-                        el = await page.wait_for_selector(sel, timeout=4000)
-                        if el:
-                            await el.click()
-                            print(f"  「スレッドに追加」クリック: {sel}")
-                            add_btn = el
-                            break
-                    except Exception:
-                        continue
-
-                if not add_btn:
-                    # スクリーンショットを撮って原因を記録し、スキップ
-                    await page.screenshot(path=f"/tmp/threads_part{i}_fail.png")
-                    print(f"  警告: 「スレッドに追加」未検出（パート{i}スキップ）")
+                # まず既存のcontenteditable数を確認（すでに次の入力欄があるか）
+                text_areas = await page.query_selector_all('[contenteditable="true"]')
+                if len(text_areas) >= i:
+                    print(f"  contenteditable {i}個目が既に存在 → 直接クリック")
+                    await text_areas[i - 1].click()
+                    await page.wait_for_timeout(500)
+                    await page.keyboard.type(part)
+                    await page.wait_for_timeout(500)
                     continue
 
-                await page.wait_for_timeout(1000)
-                text_areas = await page.query_selector_all('[contenteditable="true"]')
-                await text_areas[-1].click()
-                await page.wait_for_timeout(500)
-                await page.keyboard.type(part)
-                await page.wait_for_timeout(500)
+                # JavaScriptで「Add to thread」「スレッドに追加」を含む要素をクリック
+                clicked = await page.evaluate("""() => {
+                    const keywords = ['Add to thread', 'スレッドに追加'];
+                    const walker = document.createTreeWalker(
+                        document.body, NodeFilter.SHOW_TEXT, null, false
+                    );
+                    let node;
+                    while ((node = walker.nextNode())) {
+                        const txt = node.textContent.trim();
+                        if (keywords.some(kw => txt === kw)) {
+                            const el = node.parentElement;
+                            el.click();
+                            return txt;
+                        }
+                    }
+                    return null;
+                }""")
+
+                if clicked:
+                    print(f"  JS クリック成功: '{clicked}'")
+                    await page.wait_for_timeout(1000)
+                    text_areas = await page.query_selector_all('[contenteditable="true"]')
+                    await text_areas[-1].click()
+                    await page.wait_for_timeout(500)
+                    await page.keyboard.type(part)
+                    await page.wait_for_timeout(500)
+                else:
+                    await page.screenshot(path=f"/tmp/threads_part{i}_fail.png")
+                    # ページのテキスト要素をダンプしてデバッグ
+                    texts = await page.evaluate("""() => {
+                        const els = document.querySelectorAll('div[role="button"], button, [contenteditable]');
+                        return Array.from(els).map(e => e.textContent.trim().substring(0, 50)).filter(t => t);
+                    }""")
+                    print(f"  警告: 「スレッドに追加」未検出（パート{i}スキップ）。ページ要素: {texts[:20]}")
+                    continue
 
             await page.screenshot(path="/tmp/threads_before_post.png")
             print("投稿ボタンを押しています...")
-            post_btn = page.get_by_text("投稿", exact=True)
-            count = await post_btn.count()
-            if count > 0:
-                await post_btn.last.click(force=True)
-            else:
+
+            # 投稿ボタン: 日本語「投稿」または英語「Post」
+            posted = False
+            for btn_text in ["投稿", "Post"]:
+                btn = page.get_by_text(btn_text, exact=True)
+                count = await btn.count()
+                if count > 0:
+                    await btn.last.click(force=True)
+                    posted = True
+                    print(f"  投稿ボタン '{btn_text}' をクリック")
+                    break
+
+            if not posted:
                 text_areas = await page.query_selector_all('[contenteditable="true"]')
                 await text_areas[-1].press("Control+Enter")
+                print("  Control+Enter で投稿")
+
             await page.wait_for_timeout(5000)
             print("ツリー型投稿完了")
             return "posted"

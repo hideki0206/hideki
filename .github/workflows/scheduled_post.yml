@@ -67,6 +67,14 @@ jobs:
           SLOT="${{ github.event.inputs.time_slot || steps.slot.outputs.slot }}"
           python main.py post $SLOT
 
+      - name: Upload debug screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: threads-screenshots
+          path: /tmp/threads_*.png
+          if-no-files-found: ignore
+
       - name: Save updated posts to data branch (revision反映)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
