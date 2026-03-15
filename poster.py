@@ -50,15 +50,64 @@ async def _setup_page() -> tuple:
     return p_instance, browser, page
 
 
+async def _login_if_needed(page) -> None:
+    """セッション切れでログインページに飛んでいた場合にパスワードログインする"""
+    if "login" not in page.url and "accounts" not in page.url:
+        return
+    print(f"セッション切れを検知 (URL: {page.url})。パスワードでログイン中...")
+    username_input = await page.wait_for_selector('input[type="text"]', timeout=15000)
+    await username_input.fill(THREADS_USERNAME)
+    password_input = await page.wait_for_selector('input[type="password"]', timeout=10000)
+    await password_input.fill(THREADS_PASSWORD)
+    login_btn = None
+    for sel in ['button[type="submit"]', 'div[role="button"]:has-text("Log in")', 'div[role="button"]:has-text("ログイン")']:
+        try:
+            login_btn = await page.wait_for_selector(sel, timeout=3000)
+            if login_btn:
+                await login_btn.click()
+                break
+        except Exception:
+            continue
+    if not login_btn:
+        await password_input.press("Enter")
+    await page.wait_for_timeout(8000)
+    print(f"ログイン後URL: {page.url}")
+
+
 async def _open_compose(page) -> None:
-    """「今なにしてる？」をクリックして新規スレッドモーダルを開く"""
-    # ページが完全にロードされるまで待つ
-    try:
-        trigger = await page.wait_for_selector('text="今なにしてる？"', timeout=10000)
-        await trigger.click()
-        print("「今なにしてる？」をクリックしてモーダルを開きました")
-    except Exception:
-        raise Exception("「今なにしてる？」が見つかりませんでした。ページの読み込みを確認してください。")
+    """新規スレッドモーダルを開く"""
+    # 現在のURLを確認（セッション切れでログインページに飛んでいないか）
+    print(f"現在のURL: {page.url}")
+    await page.screenshot(path="/tmp/threads_before_compose.png")
+
+    # 複数のセレクターを順番に試す
+    compose_selectors = [
+        'text="今なにしてる？"',
+        '[aria-label="テキストフィールドが空です。テキストを入力して新しい投稿を作成できます。"]',
+        'text="What\'s new?"',
+        'text="Start a thread"',
+        '[aria-label="New post"]',
+        '[aria-label="新しいスレッドを作成"]',
+        '[aria-label="Create"]',
+        'div[role="button"]:has-text("作成")',
+    ]
+
+    opened = False
+    for sel in compose_selectors:
+        try:
+            el = await page.wait_for_selector(sel, timeout=5000)
+            if el:
+                await el.click()
+                print(f"投稿入力欄を開きました: {sel}")
+                opened = True
+                break
+        except Exception:
+            continue
+
+    if not opened:
+        await page.screenshot(path="/tmp/threads_compose_fail.png")
+        raise Exception(f"投稿入力欄が見つかりませんでした。URL: {page.url}")
+
     # モーダルが開くまで待つ
     await page.wait_for_selector('[contenteditable="true"]', timeout=10000)
 
@@ -78,28 +127,9 @@ async def post_to_threads_async(text: str) -> str:
         page = await context.new_page()
 
         try:
-            if THREADS_SESSION:
-                await page.goto("https://www.threads.com", wait_until="networkidle", timeout=60000)
-                await page.wait_for_timeout(3000)
-            else:
-                await page.goto("https://www.threads.com/login", wait_until="networkidle", timeout=60000)
-                await page.wait_for_timeout(3000)
-                username_input = await page.wait_for_selector('input[type="text"]', timeout=15000)
-                await username_input.fill(THREADS_USERNAME)
-                password_input = await page.wait_for_selector('input[type="password"]', timeout=10000)
-                await password_input.fill(THREADS_PASSWORD)
-                login_btn = None
-                for sel in ['button[type="submit"]', 'div[role="button"]:has-text("Log in")', 'div[role="button"]:has-text("ログイン")']:
-                    try:
-                        login_btn = await page.wait_for_selector(sel, timeout=3000)
-                        if login_btn:
-                            await login_btn.click()
-                            break
-                    except Exception:
-                        continue
-                if not login_btn:
-                    await password_input.press("Enter")
-                await page.wait_for_timeout(8000)
+            await page.goto("https://www.threads.com", wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(5000)
+            await _login_if_needed(page)
 
             await _open_compose(page)
 
@@ -140,28 +170,9 @@ async def post_thread_to_threads_async(parts: list) -> str:
         page = await context.new_page()
 
         try:
-            if THREADS_SESSION:
-                await page.goto("https://www.threads.com", wait_until="networkidle", timeout=60000)
-                await page.wait_for_timeout(3000)
-            else:
-                await page.goto("https://www.threads.com/login", wait_until="networkidle", timeout=60000)
-                await page.wait_for_timeout(3000)
-                username_input = await page.wait_for_selector('input[type="text"]', timeout=15000)
-                await username_input.fill(THREADS_USERNAME)
-                password_input = await page.wait_for_selector('input[type="password"]', timeout=10000)
-                await password_input.fill(THREADS_PASSWORD)
-                login_btn = None
-                for sel in ['button[type="submit"]', 'div[role="button"]:has-text("Log in")', 'div[role="button"]:has-text("ログイン")']:
-                    try:
-                        login_btn = await page.wait_for_selector(sel, timeout=3000)
-                        if login_btn:
-                            await login_btn.click()
-                            break
-                    except Exception:
-                        continue
-                if not login_btn:
-                    await password_input.press("Enter")
-                await page.wait_for_timeout(8000)
+            await page.goto("https://www.threads.com", wait_until="networkidle", timeout=60000)
+            await page.wait_for_timeout(5000)
+            await _login_if_needed(page)
 
             await _open_compose(page)
 
