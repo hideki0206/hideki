@@ -194,45 +194,46 @@ async def post_thread_to_threads_async(parts: list) -> str:
             for i, part in enumerate(parts[1:], start=2):
                 print(f"パート{i}を追加中...")
 
-                # まず既存のcontenteditable数を確認（すでに次の入力欄があるか）
+                # 現在のcontenteditable数を確認
                 text_areas = await page.query_selector_all('[contenteditable="true"]')
-                if len(text_areas) >= i:
-                    print(f"  contenteditable {i}個目が既に存在 → 直接クリック")
-                    await text_areas[i - 1].click()
-                    await page.wait_for_timeout(500)
-                    await page.keyboard.type(part)
-                    await page.wait_for_timeout(500)
-                    continue
+                print(f"  現在のcontenteditable数: {len(text_areas)}")
 
                 # JavaScriptで「Add to thread」「スレッドに追加」を含む要素をクリック
+                # スクロールしてから dispatch click（最後に出現する要素を対象）
                 clicked = await page.evaluate("""() => {
                     const keywords = ['Add to thread', 'スレッドに追加'];
                     const walker = document.createTreeWalker(
                         document.body, NodeFilter.SHOW_TEXT, null, false
                     );
+                    let found = null;
                     let node;
                     while ((node = walker.nextNode())) {
                         const txt = node.textContent.trim();
                         if (keywords.some(kw => txt === kw)) {
-                            const el = node.parentElement;
-                            el.click();
-                            return txt;
+                            found = {node, txt};
                         }
+                    }
+                    if (found) {
+                        const el = found.node.parentElement;
+                        el.scrollIntoView({behavior: 'instant', block: 'center'});
+                        el.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
+                        return found.txt;
                     }
                     return null;
                 }""")
 
                 if clicked:
                     print(f"  JS クリック成功: '{clicked}'")
-                    await page.wait_for_timeout(1000)
+                    # 新しいcontenteditable が追加されるまで待機
+                    await page.wait_for_timeout(1500)
                     text_areas = await page.query_selector_all('[contenteditable="true"]')
+                    print(f"  クリック後のcontenteditable数: {len(text_areas)}")
                     await text_areas[-1].click()
                     await page.wait_for_timeout(500)
                     await page.keyboard.type(part)
                     await page.wait_for_timeout(500)
                 else:
                     await page.screenshot(path=f"/tmp/threads_part{i}_fail.png")
-                    # ページのテキスト要素をダンプしてデバッグ
                     texts = await page.evaluate("""() => {
                         const els = document.querySelectorAll('div[role="button"], button, [contenteditable]');
                         return Array.from(els).map(e => e.textContent.trim().substring(0, 50)).filter(t => t);
