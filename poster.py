@@ -198,9 +198,9 @@ async def post_thread_to_threads_async(parts: list) -> str:
                 text_areas = await page.query_selector_all('[contenteditable="true"]')
                 print(f"  現在のcontenteditable数: {len(text_areas)}")
 
-                # JavaScriptで「Add to thread」「スレッドに追加」を含む要素をクリック
-                # スクロールしてから dispatch click（最後に出現する要素を対象）
-                clicked = await page.evaluate("""() => {
+                # 「Add to thread」の座標を取得してpage.mouse.click()でクリック
+                # (dispatchEventではReactの合成イベントが発火しないため座標クリックを使う)
+                coords = await page.evaluate("""() => {
                     const keywords = ['Add to thread', 'スレッドに追加'];
                     const walker = document.createTreeWalker(
                         document.body, NodeFilter.SHOW_TEXT, null, false
@@ -210,20 +210,21 @@ async def post_thread_to_threads_async(parts: list) -> str:
                     while ((node = walker.nextNode())) {
                         const txt = node.textContent.trim();
                         if (keywords.some(kw => txt === kw)) {
-                            found = {node, txt};
+                            found = node.parentElement;
                         }
                     }
                     if (found) {
-                        const el = found.node.parentElement;
-                        el.scrollIntoView({behavior: 'instant', block: 'center'});
-                        el.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window}));
-                        return found.txt;
+                        found.scrollIntoView({behavior: 'instant', block: 'center'});
+                        const rect = found.getBoundingClientRect();
+                        return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, txt: found.textContent.trim()};
                     }
                     return null;
                 }""")
 
-                if clicked:
-                    print(f"  JS クリック成功: '{clicked}'")
+                if coords:
+                    print(f"  座標クリック: ({coords['x']:.0f}, {coords['y']:.0f}) '{coords['txt']}'")
+                    await page.wait_for_timeout(300)
+                    await page.mouse.click(coords['x'], coords['y'])
                     # 新しいcontenteditable が追加されるまで待機
                     await page.wait_for_timeout(1500)
                     text_areas = await page.query_selector_all('[contenteditable="true"]')
