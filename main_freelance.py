@@ -41,7 +41,14 @@ def cmd_scrape():
     save_generated_posts(posts, POSTS_FILE)
 
     print("\n=== ChatWork通知 ===")
-    send_posts_for_approval(posts)
+    message_ids = send_posts_for_approval(posts)
+
+    # message_id を各投稿に保存（check_approvals の引用返信照合に使用）
+    for post in posts:
+        slot = post["time_slot"]
+        if slot in message_ids:
+            post["chatwork_message_id"] = message_ids[slot]
+    save_generated_posts(posts, POSTS_FILE)
     print("完了！ChatWorkで承認してください。")
 
 
@@ -65,12 +72,13 @@ def cmd_revise():
             slot = post["time_slot"]
             print(f"=== {slot} を修正中（指示：{note}）===")
             new_post = regenerate_single_post(slot, note)
+            msg_id = send_revised_post_for_approval(new_post)
+            new_post["chatwork_message_id"] = msg_id
             # 元のリストを更新
             for i, p in enumerate(posts):
                 if p["time_slot"] == slot:
                     posts[i] = new_post
                     break
-            send_revised_post_for_approval(new_post)
             revised = True
 
     if revised:
