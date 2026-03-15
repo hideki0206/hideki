@@ -7,24 +7,19 @@ JST = timezone(timedelta(hours=9))
 BASE_URL = "https://api.chatwork.com/v2"
 HEADERS = {"X-ChatWorkToken": CHATWORK_API_TOKEN}
 
-SLOT_TAG = {
-    "morning": "[朝]",
-    "noon":    "[昼]",
-    "evening": "[夜]",
-}
 SLOT_LABEL = {
     "morning": "🌅 朝（7:00）",
     "noon":    "☀️ 昼（12:00）",
     "evening": "🌙 夜（19:00）",
 }
-TAG_TO_SLOT = {v: k for k, v in SLOT_TAG.items()}
 
 
-def send_posts_for_approval(posts: list[dict]):
-    """投稿ごとに個別メッセージでChatWorkに送信して承認を求める"""
+def send_posts_for_approval(posts: list[dict]) -> dict:
+    """投稿ごとに個別メッセージを送信し、message_id を返す"""
+    message_ids = {}
+
     for post in posts:
         slot = post["time_slot"]
-        tag = SLOT_TAG.get(slot, f"[{slot}]")
         label = SLOT_LABEL.get(slot, slot)
 
         lines = [f"[To:909701] 【投稿案】{label}"]
@@ -42,13 +37,11 @@ def send_posts_for_approval(posts: list[dict]):
             lines.append("")
 
         lines.append("─────────────")
-        lines.append(f"▶ 承認する場合：")
-        lines.append(f"  {tag} 承認")
-        lines.append(f"▶ 修正する場合：")
-        lines.append(f"  {tag} 修正")
-        lines.append(f"  （修正後の全文をこの下に書いてください）")
+        lines.append("▶ このメッセージに返信してください")
+        lines.append("  「承認」→ そのまま投稿")
+        lines.append("  修正後の全文 → 修正内容で投稿")
         if post.get("is_thread"):
-            lines.append(f"  ※ ツリー投稿の場合は「--- 1/6 ---」の形式で各パートを区切ってください")
+            lines.append("  ※ ツリー修正は「--- 1/6 ---」区切りで各パートを書いてください")
 
         resp = requests.post(
             f"{BASE_URL}/rooms/{CHATWORK_ROOM_ID}/messages",
@@ -57,11 +50,14 @@ def send_posts_for_approval(posts: list[dict]):
         )
         resp.raise_for_status()
         msg_id = resp.json().get("message_id", "")
+        message_ids[slot] = msg_id
         print(f"ChatWork送信完了 [{slot}] (message_id: {msg_id})")
+
+    return message_ids
 
 
 def check_approvals(posts: list[dict]) -> list[dict]:
-    """ChatWorkのメッセージを確認して承認/修正済み投稿を返す"""
+    """ChatWorkの返信を確認して承認/修正済み投稿を返す"""
     resp = requests.get(
         f"{BASE_URL}/rooms/{CHATWORK_ROOM_ID}/messages",
         headers=HEADERS,
@@ -70,21 +66,37 @@ def check_approvals(posts: list[dict]) -> list[dict]:
     resp.raise_for_status()
     messages = resp.json()
 
-    # slot -> {"status": "approved"} or {"status": "modified", "content": "..."}
+    # message_id -> slot のマップを posts から構築
+    id_to_slot = {}
+    for post in posts:
+        mid = post.get("chatwork_message_id")
+        if mid:
+            id_to_slot[str(mid)] = post["time_slot"]
+
+    # slot -> decision
     decisions = {}
 
     for msg in messages:
         body = msg.get("body", "").strip()
 
-        for tag, slot in TAG_TO_SLOT.items():
-            # 承認パターン: "[朝] 承認" or "[朝]承認"
-            if re.match(rf'^{re.escape(tag)}\s*承認', body):
-                decisions[slot] = {"status": "approved"}
+        # ChatWorkの引用返信形式: [rp aid=xxx to=ROOMID-MESSAGEID]
+        rp_match = re.search(r'\[rp\b[^\]]*\bto=\d+-(\d+)\]', body)
+        if not rp_match:
+            continue
 
-            # 修正パターン: "[朝] 修正\n<内容>"
-            elif re.match(rf'^{re.escape(tag)}\s*修正', body):
-                content = re.sub(rf'^{re.escape(tag)}\s*修正\s*', '', body).strip()
-                decisions[slot] = {"status": "modified", "content": content}
+        replied_to_id = rp_match.group(1)
+        slot = id_to_slot.get(replied_to_id)
+        if not slot:
+            continue
+
+        # 引用ブロック([qt]...[/qt])を除いた本文を取り出す
+        clean = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+        clean = re.sub(r'\[rp\b[^\]]*\]', '', clean).strip()
+
+        if clean == "承認":
+            decisions[slot] = {"status": "approved"}
+        elif clean:
+            decisions[slot] = {"status": "modified", "content": clean}
 
     approved_posts = []
     for post in posts:
