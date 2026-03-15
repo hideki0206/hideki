@@ -18,7 +18,11 @@ def send_posts_for_approval(posts: list[dict]) -> str:
         lines.append(f"━━━━━━━━━━━━━━━")
         lines.append(f"【{i}】{slot_label}")
         lines.append(f"テーマ: {post['theme']}")
-        lines.append(f"\n{post['text']}\n")
+        if post.get("is_thread") and post.get("thread_parts"):
+            for j, part in enumerate(post["thread_parts"], 1):
+                lines.append(f"\n--- {j}/{len(post['thread_parts'])} ---\n{part}")
+        else:
+            lines.append(f"\n{post.get('text', '')}\n")
 
     lines.append("━━━━━━━━━━━━━━━")
     lines.append("※ 「承認」→ そのまま投稿")
@@ -54,7 +58,7 @@ def check_approvals(posts: list[dict]) -> list[dict]:
         body = msg.get("body", "").strip()
         if body == "承認":
             # 直近3スロット全て承認
-            approved_slots = {"morning", "noon", "evening"}
+            approved_slots = {"morning", "noon", "evening", "thread"}
         elif body.startswith("修正：") or body.startswith("修正:"):
             note = re.sub(r'^修正[：:]', '', body).strip()
             # どのスロットへの修正かは簡易的にメッセージ順で判定
@@ -72,7 +76,7 @@ def check_approvals(posts: list[dict]) -> list[dict]:
 
 def send_post_result(time_slot: str, success: bool, text: str = ""):
     """投稿結果をChatWorkに通知"""
-    slot_label = {"morning": "朝", "noon": "昼", "evening": "夜"}.get(time_slot, time_slot)
+    slot_label = {"morning": "朝", "noon": "昼", "evening": "夜", "thread": "夜(ツリー)"}.get(time_slot, time_slot)
     if success:
         message = f"✅ {slot_label}の投稿が完了しました！\n\n{text}"
     else:
