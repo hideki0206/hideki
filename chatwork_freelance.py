@@ -84,15 +84,21 @@ def check_approvals(posts: list[dict]) -> list[dict]:
     for msg in messages:
         body = msg.get("body", "").strip()
 
-        for slot, jp in SLOT_LABELS.items():
-            # 「朝 承認」「昼 承認」「夜 承認」
-            if re.match(rf'^{jp}\s*承認$', body):
-                slot_status[slot] = {"status": "approved"}
+        # 複数行まとめて送られた場合も1行ずつ処理
+        for line in body.splitlines():
+            line = line.strip()
+            if not line:
+                continue
 
-            # 「朝 修正：〇〇」「昼 修正：〇〇」「夜 修正：〇〇」
-            m = re.match(rf'^{jp}\s*修正[：:]\s*(.+)$', body, re.DOTALL)
-            if m:
-                slot_status[slot] = {"status": "revision", "note": m.group(1).strip()}
+            for slot, jp in SLOT_LABELS.items():
+                # 「朝 承認」「昼 承認」「夜 承認」
+                if re.match(rf'^{jp}\s*承認$', line):
+                    slot_status[slot] = {"status": "approved"}
+
+                # 「朝 修正：〇〇」「昼 修正：〇〇」「夜 修正：〇〇」
+                m = re.match(rf'^{jp}\s*修正[：:]\s*(.+)$', line)
+                if m:
+                    slot_status[slot] = {"status": "revision", "note": m.group(1).strip()}
 
     result = []
     for post in posts:
