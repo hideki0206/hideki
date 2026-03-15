@@ -270,7 +270,16 @@ async def post_thread_to_threads_async(parts: list) -> str:
                 await text_areas[-1].press("Control+Enter")
                 print("  Control+Enter で投稿")
 
-            await page.wait_for_timeout(5000)
+            # モーダルが閉じるまで待機（投稿完了の確認）
+            # 6パートのスレッドはサーバー処理に時間がかかるため長めに待つ
+            try:
+                await page.wait_for_selector('text="New thread"', state="hidden", timeout=20000)
+                print("  モーダルが閉じました（投稿完了）")
+            except Exception:
+                await page.wait_for_timeout(10000)
+                print("  タイムアウト待機完了")
+
+            await page.screenshot(path="/tmp/threads_after_post.png")
             print("ツリー型投稿完了")
             return "posted"
 
