@@ -193,54 +193,48 @@ async def post_thread_to_threads_async(parts: list) -> str:
             # 2パート目以降を追加
             for i, part in enumerate(parts[1:], start=2):
                 print(f"パート{i}を追加中...")
+                await page.screenshot(path=f"/tmp/threads_before_part{i}.png")
 
-                # 現在のcontenteditable数を確認
-                text_areas = await page.query_selector_all('[contenteditable="true"]')
-                print(f"  現在のcontenteditable数: {len(text_areas)}")
+                prev_count = len(await page.query_selector_all('[contenteditable="true"]'))
+                print(f"  クリック前のcontenteditable数: {prev_count}")
 
-                # 「Add to thread」の座標を取得してpage.mouse.click()でクリック
-                # (dispatchEventではReactの合成イベントが発火しないため座標クリックを使う)
-                coords = await page.evaluate("""() => {
-                    const keywords = ['Add to thread', 'スレッドに追加'];
-                    const walker = document.createTreeWalker(
-                        document.body, NodeFilter.SHOW_TEXT, null, false
-                    );
-                    let found = null;
-                    let node;
-                    while ((node = walker.nextNode())) {
-                        const txt = node.textContent.trim();
-                        if (keywords.some(kw => txt === kw)) {
-                            found = node.parentElement;
-                        }
-                    }
-                    if (found) {
-                        found.scrollIntoView({behavior: 'instant', block: 'center'});
-                        const rect = found.getBoundingClientRect();
-                        return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, txt: found.textContent.trim()};
-                    }
-                    return null;
-                }""")
+                # PlaywrightのLocatorで「Add to thread」「スレッドに追加」をクリック
+                clicked_text = None
+                for btn_text in ["Add to thread", "スレッドに追加"]:
+                    btn = page.get_by_text(btn_text, exact=True)
+                    count = await btn.count()
+                    print(f"  '{btn_text}' の数: {count}")
+                    if count > 0:
+                        try:
+                            await btn.last.scroll_into_view_if_needed()
+                            await page.wait_for_timeout(300)
+                            await btn.last.click()
+                            clicked_text = btn_text
+                            print(f"  クリック成功: '{btn_text}'")
+                            break
+                        except Exception as e:
+                            print(f"  クリック失敗: {e}")
+                            continue
 
-                if coords:
-                    print(f"  座標クリック: ({coords['x']:.0f}, {coords['y']:.0f}) '{coords['txt']}'")
-                    await page.wait_for_timeout(300)
-                    await page.mouse.click(coords['x'], coords['y'])
-                    # 新しいcontenteditable が追加されるまで待機
-                    await page.wait_for_timeout(1500)
-                    text_areas = await page.query_selector_all('[contenteditable="true"]')
-                    print(f"  クリック後のcontenteditable数: {len(text_areas)}")
-                    await text_areas[-1].click()
-                    await page.wait_for_timeout(500)
-                    await page.keyboard.type(part)
-                    await page.wait_for_timeout(500)
-                else:
+                if not clicked_text:
                     await page.screenshot(path=f"/tmp/threads_part{i}_fail.png")
-                    texts = await page.evaluate("""() => {
-                        const els = document.querySelectorAll('div[role="button"], button, [contenteditable]');
-                        return Array.from(els).map(e => e.textContent.trim().substring(0, 50)).filter(t => t);
-                    }""")
-                    print(f"  警告: 「スレッドに追加」未検出（パート{i}スキップ）。ページ要素: {texts[:20]}")
+                    print(f"  警告: ボタン未検出（パート{i}スキップ）")
                     continue
+
+                # 新しいcontenteditable が現れるまで待機（最大3秒）
+                for _ in range(6):
+                    await page.wait_for_timeout(500)
+                    new_areas = await page.query_selector_all('[contenteditable="true"]')
+                    if len(new_areas) > prev_count:
+                        break
+                print(f"  クリック後のcontenteditable数: {len(new_areas)}")
+
+                # 新しく追加された（空の）contenteditableに入力
+                new_area = new_areas[-1]
+                await new_area.click()
+                await page.wait_for_timeout(500)
+                await page.keyboard.type(part)
+                await page.wait_for_timeout(800)
 
             await page.screenshot(path="/tmp/threads_before_post.png")
             print("投稿ボタンを押しています...")
