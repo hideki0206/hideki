@@ -34,55 +34,101 @@ def analyze_and_generate(scraped_data: dict) -> list[dict]:
 【競合アカウントの投稿（トレンド分析用）】
 {competitor_texts}
 
-上記を分析して、以下の条件でThreads投稿文を3本作成してください：
+上記を分析して、以下の条件でThreadsのツリー型投稿（6パート構成）を朝・昼・夜の3セット作成してください：
 
-条件：
+■ 共通の文体ルール（全投稿に適用）：
 - 「過去に反応が良かった投稿」のトーン・構成・言葉遣いを忠実に再現する
-- 語りかけるような口語体（〜です、〜ますより「〜だよね」「〜してみてください」）
-- 具体的な数字や事例を入れる（リピート率80%、月50万など）
+- 語りかける口語体：「〜だよね...」「〜してみてね↓」「〜だよ」
 - 読者の悩みに共感してから解決策を提示する流れ
-- 最後に行動を促すCTA（「プロフをチェックしてね」等）を入れる
+- 具体的な数字や事例を入れる（リピート率80%、月50万など）
 - 競合のトレンドテーマを取り入れる
-- 朝・昼・夜それぞれに適した内容にする
-- 各投稿は300〜500文字
+
+■ 全枠共通：ツリー型投稿（6パート構成）
+- PART1：タイトル・フックのみ（例：「リピート率90%超えのサロンがやってる接客」）
+- PART2：問題提起と共感（「実は〜です。〜だよね...。まずは解説を見てね↓」）
+- PART3：【タイトル】(2/4) ノウハウ前半（箇条書き or 番号リスト）+ 「↓」で次へ誘導
+- PART4：【タイトル】(3/4) ノウハウ後半 + 具体的なアドバイス
+- PART5：CTA（「〜してみてください。応援しています。」）
+- PART6：プロフ誘導（「ちなみに、〜したい人は僕のプロフをチェックしてね！☺️」）
 
 以下の形式で出力してください（この形式を厳守してください）：
 
 ===MORNING===
 THEME: テーマ
-TEXT:
-朝の投稿文
+PART1:
+（タイトルのみ）
+PART2:
+（問題提起・共感）
+PART3:
+（ノウハウ前半）
+PART4:
+（ノウハウ後半）
+PART5:
+（CTA・応援）
+PART6:
+（プロフ誘導）
 
 ===NOON===
 THEME: テーマ
-TEXT:
-昼の投稿文
+PART1:
+（タイトルのみ）
+PART2:
+（問題提起・共感）
+PART3:
+（ノウハウ前半）
+PART4:
+（ノウハウ後半）
+PART5:
+（CTA・応援）
+PART6:
+（プロフ誘導）
 
 ===EVENING===
 THEME: テーマ
-TEXT:
-夜の投稿文
+PART1:
+（タイトルのみ）
+PART2:
+（問題提起・共感）
+PART3:
+（ノウハウ前半）
+PART4:
+（ノウハウ後半）
+PART5:
+（CTA・応援）
+PART6:
+（プロフ誘導）
 """
 
     response = client.messages.create(
         model="claude-opus-4-6",
-        max_tokens=2000,
+        max_tokens=4000,
         messages=[{"role": "user", "content": prompt}]
     )
 
     text = response.content[0].text.strip()
 
     posts = []
+
+    def parse_thread_parts(parts_text: str) -> list:
+        parts = []
+        for i in range(1, 7):
+            end = rf'(?=PART{i+1}:|\Z)'
+            part_match = re.search(rf'PART{i}:\s*(.*?){end}', parts_text, re.DOTALL)
+            if part_match:
+                parts.append(part_match.group(1).strip())
+        return parts
+
     for slot in ("morning", "noon", "evening"):
-        pattern = rf'==={slot.upper()}===\s*THEME:\s*(.+?)\s*TEXT:\s*(.*?)(?====|\Z)'
-        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        match = re.search(
+            rf'==={slot.upper()}===\s*THEME:\s*(.+?)\s*(PART1:.*?)(?====|\Z)',
+            text, re.DOTALL
+        )
         if match:
-            theme = match.group(1).strip()
-            post_text = match.group(2).strip()
             posts.append({
                 "time_slot": slot,
-                "text": post_text,
-                "theme": theme,
+                "theme": match.group(1).strip(),
+                "is_thread": True,
+                "thread_parts": parse_thread_parts(match.group(2)),
             })
         else:
             print(f"{slot} のパースに失敗")

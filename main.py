@@ -2,9 +2,9 @@
 メインスクリプト
 使い方:
   python main.py scrape        # スクレイピング＋投稿生成＋ChatWork通知
-  python main.py post morning  # 朝の投稿を実行
-  python main.py post noon     # 昼の投稿を実行
-  python main.py post evening  # 夜の投稿を実行
+  python main.py post morning  # 朝のツリー投稿を実行
+  python main.py post noon     # 昼のツリー投稿を実行
+  python main.py post evening  # 夜のツリー投稿を実行
 """
 
 import asyncio
@@ -46,7 +46,7 @@ def cmd_scrape():
 
 def cmd_post(time_slot: str):
     from chatwork import check_approvals, send_post_result
-    from poster import post_to_threads
+    from poster import post_to_threads, post_thread_to_threads
 
     if not Path(POSTS_FILE).exists():
         print(f"エラー: {POSTS_FILE} が見つかりません。先に scrape を実行してください。")
@@ -72,8 +72,13 @@ def cmd_post(time_slot: str):
 
     print(f"=== {time_slot} 投稿開始 ===")
     try:
-        post_id = post_to_threads(approved_slot["text"])
-        send_post_result(time_slot, True, approved_slot["text"])
+        if approved_slot.get("is_thread") and approved_slot.get("thread_parts"):
+            post_id = post_thread_to_threads(approved_slot["thread_parts"])
+            preview = approved_slot["thread_parts"][0]
+        else:
+            post_id = post_to_threads(approved_slot["text"])
+            preview = approved_slot["text"]
+        send_post_result(time_slot, True, preview)
         print(f"投稿完了: {post_id}")
     except Exception as e:
         send_post_result(time_slot, False)
