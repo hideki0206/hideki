@@ -2,6 +2,7 @@
 フリーランス向けThreads自動投稿（@hideki0206）
 使い方:
   python main_freelance.py scrape        # スクレイピング＋投稿生成＋ChatWork通知
+  python main_freelance.py revise        # 修正指示チェック＋再生成＋再提案
   python main_freelance.py post morning  # 朝の投稿を実行
   python main_freelance.py post noon     # 昼の投稿を実行
   python main_freelance.py post evening  # 夜の投稿を実行
@@ -42,6 +43,41 @@ def cmd_scrape():
     print("\n=== ChatWork通知 ===")
     send_posts_for_approval(posts)
     print("完了！ChatWorkで承認してください。")
+
+
+def cmd_revise():
+    from chatwork_freelance import check_approvals, send_revised_post_for_approval
+    from analyzer_freelance import regenerate_single_post, save_generated_posts
+
+    if not Path(POSTS_FILE).exists():
+        print(f"エラー: {POSTS_FILE} が見つかりません。")
+        sys.exit(1)
+
+    with open(POSTS_FILE, encoding="utf-8") as f:
+        posts = json.load(f)
+
+    checked = check_approvals(posts)
+    revised = False
+
+    for post in checked:
+        if post.get("status") == "revision":
+            note = post.get("note", "")
+            slot = post["time_slot"]
+            print(f"=== {slot} を修正中（指示：{note}）===")
+            new_post = regenerate_single_post(slot, note)
+            # 元のリストを更新
+            for i, p in enumerate(posts):
+                if p["time_slot"] == slot:
+                    posts[i] = new_post
+                    break
+            send_revised_post_for_approval(new_post)
+            revised = True
+
+    if revised:
+        save_generated_posts(posts, POSTS_FILE)
+        print("修正完了・再提案しました。")
+    else:
+        print("修正指示はありませんでした。")
 
 
 def cmd_post(time_slot: str):
@@ -90,6 +126,8 @@ if __name__ == "__main__":
     command = sys.argv[1]
     if command == "scrape":
         cmd_scrape()
+    elif command == "revise":
+        cmd_revise()
     elif command == "post" and len(sys.argv) >= 3:
         cmd_post(sys.argv[2])
     else:

@@ -1,0 +1,62 @@
+name: Revision Check (Freelance)
+
+on:
+  schedule:
+    - cron: '*/30 21-11 * * *'  # 06:00〜20:30 JST の間、30分ごとに実行
+  workflow_dispatch:
+
+jobs:
+  revise:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download generated posts via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3.raw" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts_freelance.json?ref=data" \
+            -o generated_posts_freelance.json
+          echo "ダウンロード完了"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check and revise posts
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CHATWORK_API_TOKEN: ${{ secrets.CHATWORK_API_TOKEN }}
+          CHATWORK_ROOM_ID_2: ${{ secrets.CHATWORK_ROOM_ID_2 }}
+        run: python main_freelance.py revise
+
+      - name: Save updated posts to data branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts_freelance.json?ref=data" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
+
+          CONTENT=$(base64 -w 0 generated_posts_freelance.json)
+
+          if [ -n "$SHA" ]; then
+            PAYLOAD="{\"message\":\"Revise freelance posts\",\"content\":\"$CONTENT\",\"branch\":\"data\",\"sha\":\"$SHA\"}"
+          else
+            PAYLOAD="{\"message\":\"Revise freelance posts\",\"content\":\"$CONTENT\",\"branch\":\"data\"}"
+          fi
+
+          curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts_freelance.json"
+          echo "保存完了"

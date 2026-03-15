@@ -119,6 +119,64 @@ TEXT:
     return posts
 
 
+def regenerate_single_post(slot: str, revision_note: str) -> dict:
+    """1投稿だけ修正指示をもとに再生成"""
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    slot_label = {"morning": "朝", "noon": "昼", "evening": "夜"}.get(slot, slot)
+    reference_texts = "\n\n---\n".join(REFERENCE_POSTS)
+
+    prompt = f"""あなたはフリーランス・ビジネス系SNSアカウントの投稿ライターです。
+
+━━━━━━━━━━━━━━━━━━
+⛔ 絶対にNGなテーマ
+━━━━━━━━━━━━━━━━━━
+× 幸せの本質・感謝・心が軽くなる
+× 自己肯定感・メンタル・癒し・傷・痛み
+× 「満たされている人」「穏やかな人」などの感情系ほど〜構文
+× 人生哲学・精神論・スピリチュアル系
+× 「今日もお疲れさまでした」などの共感・労いの言葉
+━━━━━━━━━━━━━━━━━━
+
+【参考にすべき過去投稿】
+{reference_texts}
+
+━━━━━━━━━━━━━━━━━━
+【修正指示】
+対象：{slot_label}の投稿
+修正内容：{revision_note}
+━━━━━━━━━━━━━━━━━━
+
+上記の修正指示をもとに、{slot_label}の投稿を1本だけ作り直してください。
+
+{"【朝の投稿】・『〜』より『〜』の形式で6〜8項目。テーマ：集客・売上・働き方・フリーランス・ビジネス設計。最後に1〜2行の締め。文字数150〜250文字。" if slot == "morning" else ""}
+{"【昼の投稿】「〜したら、〇〇が変わった」など行動→結果の構文。具体的な数字を入れる。文字数100〜200文字。" if slot == "noon" else ""}
+{"【夜の投稿】「僕が手に入れた〇〇」タイトル＋具体的なリスト＋「〜より〜を選んだ。」＋一言＋末尾に「僕の〇〇に\\n興味ある人は僕のプロフィールを見てね。\\n裏側を公開してるから☺️」。文字数200〜350文字。" if slot == "evening" else ""}
+
+以下の形式で出力してください：
+
+THEME: テーマ
+TEXT:
+投稿文
+"""
+
+    response = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=1000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    text = response.content[0].text.strip()
+
+    theme_match = re.search(r'THEME:\s*(.+)', text)
+    text_match = re.search(r'TEXT:\s*(.*)', text, re.DOTALL)
+
+    theme = theme_match.group(1).strip() if theme_match else slot
+    post_text = text_match.group(1).strip() if text_match else text
+
+    return {"time_slot": slot, "theme": theme, "text": post_text}
+
+
 def save_generated_posts(posts: list[dict], filepath: str = "generated_posts_freelance.json"):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(posts, f, ensure_ascii=False, indent=2)
