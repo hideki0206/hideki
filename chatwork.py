@@ -32,11 +32,13 @@ def _build_post_body(post: dict, header: str) -> str:
         lines.append(post.get("text", ""))
         lines.append("")
 
+    slot = post["time_slot"]
+    tag = {"morning": "[朝]", "noon": "[昼]", "evening": "[夜]"}.get(slot, f"[{slot}]")
     lines.append("─────────────")
-    lines.append("▶ このメッセージに返信してください")
-    lines.append("  「承認」→ そのまま投稿")
-    lines.append("  「修正: ◯◯にして」→ AIが修正案を再提案")
-    lines.append("  修正後の全文 → そのまま使用")
+    lines.append("▶ 返信ボタンで返信 または このルームにメッセージを送信：")
+    lines.append(f"  承認 → 「{tag} 承認」")
+    lines.append(f"  修正依頼 → 「{tag} 修正: ◯◯にして」")
+    lines.append(f"  全文修正 → 「{tag} 全文」の後に修正後の全文")
     if post.get("is_thread"):
         lines.append("  ※ 全文修正は「--- 1/6 ---」区切りで各パートを書いてください")
 
@@ -74,6 +76,21 @@ def send_revision_proposal(post: dict) -> str:
     return msg_id
 
 
+def _apply_decision(decisions: dict, slot: str, clean: str):
+    """承認/修正フィードバック/全文修正を decisions に登録"""
+    if clean == "承認":
+        decisions[slot] = {"status": "approved"}
+    elif re.match(r'^修正[：:]\s*\S', clean):
+        note = re.sub(r'^修正[：:]\s*', '', clean).strip()
+        decisions[slot] = {"status": "feedback", "note": note}
+    elif re.match(r'^全文', clean):
+        content = re.sub(r'^全文\s*', '', clean).strip()
+        if content:
+            decisions[slot] = {"status": "modified", "content": content}
+    elif clean:
+        decisions[slot] = {"status": "modified", "content": clean}
+
+
 def check_approvals(posts: list[dict]) -> list[dict]:
     """ChatWorkの返信を確認して承認/修正済み/フィードバック投稿を返す"""
     resp = requests.get(
@@ -88,33 +105,28 @@ def check_approvals(posts: list[dict]) -> list[dict]:
     id_to_slot = {str(p["chatwork_message_id"]): p["time_slot"]
                   for p in posts if p.get("chatwork_message_id")}
 
+    TAG_TO_SLOT = {"[朝]": "morning", "[昼]": "noon", "[夜]": "evening"}
     decisions = {}
 
     for msg in messages:
         body = msg.get("body", "").strip()
 
-        # 引用返信形式: [rp aid=xxx to=ROOMID-MESSAGEID]
+        # ── 方式1: 引用返信 [rp aid=xxx to=ROOMID-MESSAGEID] ──
         rp_match = re.search(r'\[rp\b[^\]]*\bto=\d+-(\d+)\]', body)
-        if not rp_match:
-            continue
+        if rp_match:
+            slot = id_to_slot.get(rp_match.group(1))
+            if slot:
+                clean = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+                clean = re.sub(r'\[rp\b[^\]]*\]', '', clean).strip()
+                _apply_decision(decisions, slot, clean)
+                continue
 
-        slot = id_to_slot.get(rp_match.group(1))
-        if not slot:
-            continue
-
-        # 引用ブロックと [rp] タグを除いた本文
-        clean = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
-        clean = re.sub(r'\[rp\b[^\]]*\]', '', clean).strip()
-
-        if clean == "承認":
-            decisions[slot] = {"status": "approved"}
-        elif re.match(r'^修正[：:]\s*\S', clean):
-            # "修正: ◯◯" → AIに修正依頼
-            note = re.sub(r'^修正[：:]\s*', '', clean).strip()
-            decisions[slot] = {"status": "feedback", "note": note}
-        elif clean:
-            # 全文が送られた場合はそのまま使用
-            decisions[slot] = {"status": "modified", "content": clean}
+        # ── 方式2: タグ方式 "[朝] 承認" / "[朝] 修正: ..." / "[朝] 全文\n..." ──
+        for tag, slot in TAG_TO_SLOT.items():
+            if body.startswith(tag):
+                clean = body[len(tag):].strip()
+                _apply_decision(decisions, slot, clean)
+                break
 
     approved_posts = []
     for post in posts:
