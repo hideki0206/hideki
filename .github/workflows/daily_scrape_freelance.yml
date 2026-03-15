@@ -2,7 +2,7 @@ name: Daily Scrape & Generate (Freelance)
 
 on:
   schedule:
-    - cron: '0 21 * * *'  # 毎日06:00 JST（UTC+9）
+    - cron: '0 12 * * *'  # 毎日21:00 JST（翌日分を前日夜に生成）
   workflow_dispatch:  # 手動実行も可能
 
 jobs:
