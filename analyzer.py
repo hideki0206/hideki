@@ -136,6 +136,65 @@ PART6:
     return posts
 
 
+def revise_post(post: dict, feedback: str) -> dict:
+    """フィードバックを元に投稿をAIが修正して返す"""
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    if post.get("is_thread") and post.get("thread_parts"):
+        parts = post["thread_parts"]
+        current = "\n\n".join([f"--- {i+1}/{len(parts)} ---\n{p}" for i, p in enumerate(parts)])
+    else:
+        current = post.get("text", "")
+
+    prompt = f"""以下のThreads投稿を、修正依頼に従って書き直してください。
+
+【現在の投稿】
+テーマ: {post['theme']}
+{current}
+
+【修正依頼】
+{feedback}
+
+【守るべきスタイル】
+- 語りかける口語体：「〜だよね...」「〜してみてね↓」「〜だよ」
+- 読者の悩みへの共感 → 解決策の流れ
+- 「応援しています。」で締め、最後はプロフ誘導
+- ツリー型6パート構成を維持
+
+出力形式（厳守）：
+--- 1/6 ---
+（パート1）
+--- 2/6 ---
+（パート2）
+--- 3/6 ---
+（パート3）
+--- 4/6 ---
+（パート4）
+--- 5/6 ---
+（パート5）
+--- 6/6 ---
+（パート6）"""
+
+    response = client.messages.create(
+        model="claude-opus-4-6",
+        max_tokens=2000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    revised_text = response.content[0].text.strip()
+    revised = {**post}
+
+    if post.get("is_thread"):
+        parts = re.split(r'---\s*\d+/\d+\s*---', revised_text)
+        parts = [p.strip() for p in parts if p.strip()]
+        if parts:
+            revised["thread_parts"] = parts
+    else:
+        revised["text"] = revised_text
+
+    return revised
+
+
 def save_generated_posts(posts: list[dict], filepath: str = "generated_posts.json"):
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(posts, f, ensure_ascii=False, indent=2)

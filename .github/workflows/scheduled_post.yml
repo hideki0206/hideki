@@ -15,6 +15,8 @@ on:
 jobs:
   post:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +57,7 @@ jobs:
 
       - name: Post to Threads
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CHATWORK_API_TOKEN: ${{ secrets.CHATWORK_API_TOKEN }}
           CHATWORK_ROOM_ID: ${{ secrets.CHATWORK_ROOM_ID }}
           THREADS_USERNAME: ${{ secrets.THREADS_USERNAME }}
@@ -63,3 +66,22 @@ jobs:
         run: |
           SLOT="${{ github.event.inputs.time_slot || steps.slot.outputs.slot }}"
           python main.py post $SLOT
+
+      - name: Save updated posts to data branch (revision反映)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts.json?ref=data" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null || echo "")
+          CONTENT=$(base64 -w 0 generated_posts.json)
+          if [ -n "$SHA" ]; then
+            PAYLOAD="{\"message\":\"Update posts after revision\",\"content\":\"$CONTENT\",\"branch\":\"data\",\"sha\":\"$SHA\"}"
+          else
+            PAYLOAD="{\"message\":\"Update posts after revision\",\"content\":\"$CONTENT\",\"branch\":\"data\"}"
+          fi
+          curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/generated_posts.json" > /dev/null
+          echo "data ブランチ更新完了"

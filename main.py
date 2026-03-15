@@ -78,6 +78,22 @@ def cmd_post(time_slot: str):
         print(f"{time_slot} はまだ承認されていません。スキップします。")
         return
 
+    # フィードバック（修正依頼）の場合はAIが修正案を生成してChatWorkに再送
+    if approved_slot.get("status") == "feedback":
+        from analyzer import revise_post
+        from chatwork import send_revision_proposal
+        note = approved_slot.get("feedback_note", "")
+        print(f"=== {time_slot} 修正案生成中（依頼: {note}）===")
+        revised = revise_post(approved_slot, note)
+        new_msg_id = send_revision_proposal(revised)
+        for i, post in enumerate(posts):
+            if post["time_slot"] == time_slot:
+                posts[i] = {**revised, "chatwork_message_id": new_msg_id}
+        with open(POSTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(posts, f, ensure_ascii=False, indent=2)
+        print(f"修正案をChatWorkに送信しました。承認後にワークフローを再実行してください。")
+        return
+
     print(f"=== {time_slot} 投稿開始 ===")
     try:
         if approved_slot.get("is_thread") and approved_slot.get("thread_parts"):

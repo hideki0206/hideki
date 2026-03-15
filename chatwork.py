@@ -14,50 +14,68 @@ SLOT_LABEL = {
 }
 
 
+def _build_post_body(post: dict, header: str) -> str:
+    """投稿内容のメッセージ本文を組み立てる"""
+    slot = post["time_slot"]
+    label = SLOT_LABEL.get(slot, slot)
+    lines = [f"[To:909701] {header}{label}"]
+    lines.append(f"テーマ: {post['theme']}")
+    lines.append("")
+
+    if post.get("is_thread") and post.get("thread_parts"):
+        parts = post["thread_parts"]
+        for j, part in enumerate(parts, 1):
+            lines.append(f"--- {j}/{len(parts)} ---")
+            lines.append(part)
+            lines.append("")
+    else:
+        lines.append(post.get("text", ""))
+        lines.append("")
+
+    lines.append("─────────────")
+    lines.append("▶ このメッセージに返信してください")
+    lines.append("  「承認」→ そのまま投稿")
+    lines.append("  「修正: ◯◯にして」→ AIが修正案を再提案")
+    lines.append("  修正後の全文 → そのまま使用")
+    if post.get("is_thread"):
+        lines.append("  ※ 全文修正は「--- 1/6 ---」区切りで各パートを書いてください")
+
+    return "\n".join(lines)
+
+
 def send_posts_for_approval(posts: list[dict]) -> dict:
     """投稿ごとに個別メッセージを送信し、message_id を返す"""
     message_ids = {}
-
     for post in posts:
-        slot = post["time_slot"]
-        label = SLOT_LABEL.get(slot, slot)
-
-        lines = [f"[To:909701] 【投稿案】{label}"]
-        lines.append(f"テーマ: {post['theme']}")
-        lines.append("")
-
-        if post.get("is_thread") and post.get("thread_parts"):
-            parts = post["thread_parts"]
-            for j, part in enumerate(parts, 1):
-                lines.append(f"--- {j}/{len(parts)} ---")
-                lines.append(part)
-                lines.append("")
-        else:
-            lines.append(post.get("text", ""))
-            lines.append("")
-
-        lines.append("─────────────")
-        lines.append("▶ このメッセージに返信してください")
-        lines.append("  「承認」→ そのまま投稿")
-        lines.append("  修正後の全文 → 修正内容で投稿")
-        if post.get("is_thread"):
-            lines.append("  ※ ツリー修正は「--- 1/6 ---」区切りで各パートを書いてください")
-
+        body = _build_post_body(post, "【投稿案】")
         resp = requests.post(
             f"{BASE_URL}/rooms/{CHATWORK_ROOM_ID}/messages",
             headers=HEADERS,
-            data={"body": "\n".join(lines)}
+            data={"body": body}
         )
         resp.raise_for_status()
         msg_id = resp.json().get("message_id", "")
-        message_ids[slot] = msg_id
-        print(f"ChatWork送信完了 [{slot}] (message_id: {msg_id})")
-
+        message_ids[post["time_slot"]] = msg_id
+        print(f"ChatWork送信完了 [{post['time_slot']}] (message_id: {msg_id})")
     return message_ids
 
 
+def send_revision_proposal(post: dict) -> str:
+    """修正案を ChatWork に送信し、message_id を返す"""
+    body = _build_post_body(post, "【修正案】")
+    resp = requests.post(
+        f"{BASE_URL}/rooms/{CHATWORK_ROOM_ID}/messages",
+        headers=HEADERS,
+        data={"body": body}
+    )
+    resp.raise_for_status()
+    msg_id = resp.json().get("message_id", "")
+    print(f"修正案送信完了 [{post['time_slot']}] (message_id: {msg_id})")
+    return msg_id
+
+
 def check_approvals(posts: list[dict]) -> list[dict]:
-    """ChatWorkの返信を確認して承認/修正済み投稿を返す"""
+    """ChatWorkの返信を確認して承認/修正済み/フィードバック投稿を返す"""
     resp = requests.get(
         f"{BASE_URL}/rooms/{CHATWORK_ROOM_ID}/messages",
         headers=HEADERS,
@@ -66,36 +84,36 @@ def check_approvals(posts: list[dict]) -> list[dict]:
     resp.raise_for_status()
     messages = resp.json()
 
-    # message_id -> slot のマップを posts から構築
-    id_to_slot = {}
-    for post in posts:
-        mid = post.get("chatwork_message_id")
-        if mid:
-            id_to_slot[str(mid)] = post["time_slot"]
+    # message_id -> slot のマップ
+    id_to_slot = {str(p["chatwork_message_id"]): p["time_slot"]
+                  for p in posts if p.get("chatwork_message_id")}
 
-    # slot -> decision
     decisions = {}
 
     for msg in messages:
         body = msg.get("body", "").strip()
 
-        # ChatWorkの引用返信形式: [rp aid=xxx to=ROOMID-MESSAGEID]
+        # 引用返信形式: [rp aid=xxx to=ROOMID-MESSAGEID]
         rp_match = re.search(r'\[rp\b[^\]]*\bto=\d+-(\d+)\]', body)
         if not rp_match:
             continue
 
-        replied_to_id = rp_match.group(1)
-        slot = id_to_slot.get(replied_to_id)
+        slot = id_to_slot.get(rp_match.group(1))
         if not slot:
             continue
 
-        # 引用ブロック([qt]...[/qt])を除いた本文を取り出す
+        # 引用ブロックと [rp] タグを除いた本文
         clean = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
         clean = re.sub(r'\[rp\b[^\]]*\]', '', clean).strip()
 
         if clean == "承認":
             decisions[slot] = {"status": "approved"}
+        elif re.match(r'^修正[：:]\s*\S', clean):
+            # "修正: ◯◯" → AIに修正依頼
+            note = re.sub(r'^修正[：:]\s*', '', clean).strip()
+            decisions[slot] = {"status": "feedback", "note": note}
         elif clean:
+            # 全文が送られた場合はそのまま使用
             decisions[slot] = {"status": "modified", "content": clean}
 
     approved_posts = []
@@ -108,19 +126,20 @@ def check_approvals(posts: list[dict]) -> list[dict]:
         if decision["status"] == "approved":
             approved_posts.append({**post, "status": "approved"})
 
+        elif decision["status"] == "feedback":
+            approved_posts.append({**post, "status": "feedback",
+                                   "feedback_note": decision["note"]})
+
         elif decision["status"] == "modified":
             content = decision["content"]
             modified = {**post, "status": "approved"}
-
             if post.get("is_thread"):
-                # "--- 1/6 ---\n本文\n--- 2/6 ---\n本文..." をパース
                 parts = re.split(r'---\s*\d+/\d+\s*---', content)
                 parts = [p.strip() for p in parts if p.strip()]
                 if parts:
                     modified["thread_parts"] = parts
             else:
                 modified["text"] = content
-
             approved_posts.append(modified)
 
     return approved_posts
