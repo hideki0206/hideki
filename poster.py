@@ -185,8 +185,10 @@ async def post_thread_to_threads_async(parts: list) -> str:
             # 最初のパートを入力
             text_areas = await page.query_selector_all('[contenteditable="true"]')
             await text_areas[0].click()
-            await page.wait_for_timeout(1000)
-            await page.keyboard.type(parts[0])
+            await page.wait_for_timeout(500)
+            success = await page.evaluate("(text) => document.execCommand('insertText', false, text)", parts[0])
+            if not success:
+                await page.keyboard.type(parts[0])
             await page.wait_for_timeout(1500)
             await page.screenshot(path="/tmp/threads_part1.png")
 
@@ -235,8 +237,23 @@ async def post_thread_to_threads_async(parts: list) -> str:
                 new_area = new_areas[-1]
                 await new_area.click()
                 await page.wait_for_timeout(500)
-                # delay=30 でReactのonChange が各文字を正しく処理できるようにする
-                await page.keyboard.type(part, delay=30)
+
+                # execCommand('insertText') でReact互換のinputイベントを発火する
+                # keyboard.type()はDOMを更新するがReactのonChangeが発火しない場合がある
+                success = await page.evaluate("""(text) => {
+                    try {
+                        document.execCommand('selectAll', false, null);
+                        document.execCommand('delete', false, null);
+                        return document.execCommand('insertText', false, text);
+                    } catch(e) {
+                        return false;
+                    }
+                }""", part)
+                print(f"  execCommand結果: {success}")
+                if not success:
+                    # fallback: keyboard.type
+                    await page.keyboard.type(part, delay=20)
+                    print(f"  fallback keyboard.type 使用")
                 await page.wait_for_timeout(1000)
 
             await page.screenshot(path="/tmp/threads_before_post.png")
