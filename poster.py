@@ -173,6 +173,18 @@ async def post_thread_to_threads_async(parts: list) -> str:
 
         page = await context.new_page()
 
+        # ネットワークリクエストを傍受してスレッド投稿内容を確認
+        captured_posts = []
+        async def handle_request(request):
+            if request.method == "POST" and "threads" in request.url:
+                try:
+                    body = request.post_data or ""
+                    if "thread" in body.lower() or "text" in body.lower():
+                        captured_posts.append({"url": request.url[-80:], "body": body[:300]})
+                except Exception:
+                    pass
+        page.on("request", handle_request)
+
         try:
             await page.goto("https://www.threads.com", wait_until="networkidle", timeout=60000)
             await page.wait_for_timeout(5000)
@@ -307,6 +319,10 @@ async def post_thread_to_threads_async(parts: list) -> str:
                 print("  タイムアウト待機完了")
 
             await page.screenshot(path="/tmp/threads_after_post.png")
+            print(f"キャプチャしたPOSTリクエスト数: {len(captured_posts)}")
+            for cp in captured_posts[-5:]:
+                print(f"  URL: {cp['url']}")
+                print(f"  BODY: {cp['body'][:200]}")
             print("ツリー型投稿完了")
             return "posted"
 
