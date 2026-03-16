@@ -159,23 +159,6 @@ async def post_to_threads_async(text: str) -> str:
             await browser.close()
 
 
-async def _type_into_nth_contenteditable(page, index: int, text: str) -> bool:
-    """index番目のcontenteditable(0始まり)にテキストを入力しReact stateを更新する。
-    click・focus・insertTextを1つのJS評価内で実行することでfocusずれを防ぐ。"""
-    return await page.evaluate("""(args) => {
-        const {index, text} = args;
-        const areas = document.querySelectorAll('[contenteditable="true"]');
-        if (index >= areas.length) return false;
-        const el = areas[index];
-        // フォーカス・クリックをJS内で行う（Playwright非同期ギャップでfocusがずれるのを防ぐ）
-        el.focus();
-        el.click();
-        // insertText: Reactのinputイベントを発火させる
-        const ok = document.execCommand('insertText', false, text);
-        return ok;
-    }""", {"index": index, "text": text})
-
-
 async def post_thread_to_threads_async(parts: list) -> str:
     """PlaywrightでThreadsにツリー型投稿（複数パート連結）を投稿"""
     async with async_playwright() as p:
@@ -196,51 +179,33 @@ async def post_thread_to_threads_async(parts: list) -> str:
             await _login_if_needed(page)
 
             await _open_compose(page)
+            await page.wait_for_timeout(2000)
 
             print(f"ツリー型投稿開始（{len(parts)}パート）")
 
-            # パート1を入力（index=0）
-            ok = await _type_into_nth_contenteditable(page, 0, parts[0])
-            print(f"  パート1入力: {ok}")
-            await page.wait_for_timeout(1500)
+            # 「Add to thread」プレースホルダーは元々contenteditable。
+            # ボタンクリック不要 — index=0,1,2...と順番にタイプするだけ。
+            # タイプすると次のプレースホルダーが自動で現れる。
+            for i, part in enumerate(parts):
+                print(f"  パート{i+1}を入力中...")
 
-            # パート2以降を追加
-            for i, part in enumerate(parts[1:], start=2):
-                print(f"パート{i}を追加中...")
-
-                prev_count = len(await page.query_selector_all('[contenteditable="true"]'))
-
-                # 「Add to thread」をクリック
-                clicked = False
-                for btn_text in ["Add to thread", "スレッドに追加"]:
-                    btn = page.get_by_text(btn_text, exact=True)
-                    if await btn.count() > 0:
-                        try:
-                            await btn.last.scroll_into_view_if_needed()
-                            await page.wait_for_timeout(500)
-                            await btn.last.click()
-                            clicked = True
-                            print(f"  クリック: '{btn_text}'")
-                            break
-                        except Exception as e:
-                            print(f"  クリック失敗: {e}")
-
-                if not clicked:
-                    print(f"  警告: ボタン未検出（パート{i}スキップ）")
+                # index=i のcontenteditable が出現するまで待機（最大8秒）
+                for _ in range(16):
+                    areas = await page.query_selector_all('[contenteditable="true"]')
+                    if len(areas) > i:
+                        break
+                    await page.wait_for_timeout(500)
+                else:
+                    print(f"  警告: contenteditable[{i}]が現れず（スキップ）")
                     continue
 
-                # 新しいcontenteditable が現れるまで待機
-                for _ in range(8):
-                    await page.wait_for_timeout(500)
-                    cur_count = len(await page.query_selector_all('[contenteditable="true"]'))
-                    if cur_count > prev_count:
-                        break
-
-                # Reactのハンドラマウント完了まで待機してから入力
-                await page.wait_for_timeout(1000)
-                ok = await _type_into_nth_contenteditable(page, i - 1, part)
-                print(f"  パート{i}入力: {ok}")
-                await page.wait_for_timeout(1000)
+                # クリックしてフォーカス、キーボードで入力（React onChange を確実に発火）
+                await areas[i].scroll_into_view_if_needed()
+                await areas[i].click()
+                await page.wait_for_timeout(500)
+                await page.keyboard.type(part, delay=30)
+                await page.wait_for_timeout(1500)
+                print(f"    入力完了 ({len(part)}文字)")
 
             # 投稿ボタンをクリック
             await page.screenshot(path="/tmp/threads_before_post.png")
