@@ -178,11 +178,16 @@ async def post_thread_to_threads_async(parts: list) -> str:
         async def handle_request(request):
             if request.method == "POST" and "threads" in request.url:
                 try:
+                    url = request.url
                     body = request.post_data or ""
-                    if "thread" in body.lower() or "text" in body.lower():
-                        captured_posts.append({"url": request.url[-80:], "body": body[:300]})
-                except Exception:
-                    pass
+                    # configure_text_only_post と graphql の mutation を全てキャプチャ
+                    if "configure_text_only_post" in url or "create_thread" in url.lower():
+                        import urllib.parse
+                        params = urllib.parse.parse_qs(body)
+                        caption = params.get("caption", [""])[0][:100]
+                        captured_posts.append({"url": url[-60:], "caption": caption})
+                except Exception as e:
+                    captured_posts.append({"err": str(e)})
         page.on("request", handle_request)
 
         try:
@@ -319,10 +324,9 @@ async def post_thread_to_threads_async(parts: list) -> str:
                 print("  タイムアウト待機完了")
 
             await page.screenshot(path="/tmp/threads_after_post.png")
-            print(f"キャプチャしたPOSTリクエスト数: {len(captured_posts)}")
-            for cp in captured_posts[-5:]:
-                print(f"  URL: {cp['url']}")
-                print(f"  BODY: {cp['body'][:200]}")
+            print(f"configure_text_only_post リクエスト数: {len(captured_posts)}")
+            for cp in captured_posts:
+                print(f"  URL: {cp.get('url','?')} caption: {cp.get('caption','?')[:60]}")
             print("ツリー型投稿完了")
             return "posted"
 
