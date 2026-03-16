@@ -81,15 +81,16 @@ async def _open_compose(page) -> None:
     await page.screenshot(path="/tmp/threads_before_compose.png")
 
     # 複数のセレクターを順番に試す
+    # Create ボタン（+）を優先する：フルモーダルが開き「スレッドに追加」が使える
     compose_selectors = [
+        '[aria-label="Create"]',
+        '[aria-label="New post"]',
+        '[aria-label="新しいスレッドを作成"]',
+        'div[role="button"]:has-text("作成")',
         'text="今なにしてる？"',
         '[aria-label="テキストフィールドが空です。テキストを入力して新しい投稿を作成できます。"]',
         'text="What\'s new?"',
         'text="Start a thread"',
-        '[aria-label="New post"]',
-        '[aria-label="新しいスレッドを作成"]',
-        '[aria-label="Create"]',
-        'div[role="button"]:has-text("作成")',
     ]
 
     opened = False
@@ -183,14 +184,10 @@ async def post_thread_to_threads_async(parts: list) -> str:
 
             print(f"ツリー型投稿開始（{len(parts)}パート）")
 
-            # React contenteditable への入力:
-            # keyboard.type() はDOM上にテキストを挿入するが、headless ChromiumではReactの
-            # onChangeが発火しない。keyboard.type()後にInputEventをdispatchすることで
-            # ReactがDOMのテキストを読み取りstateを更新する。
             for i, part in enumerate(parts):
                 print(f"  パート{i+1}を入力中...")
 
-                # index=i のcontenteditable が出現するまで待機（最大10秒）
+                # i番目の contenteditable が出現するまで待機（最大10秒）
                 for _ in range(20):
                     areas = await page.query_selector_all('[contenteditable="true"]')
                     if len(areas) > i:
@@ -204,11 +201,11 @@ async def post_thread_to_threads_async(parts: list) -> str:
                 await areas[i].click()
                 await page.wait_for_timeout(300)
 
-                # keyboard.type() でDOMにテキストを挿入（headless CDPではinputイベントが発火しない）
+                # keyboard.type() でキーボードイベントを発火させ「スレッドに追加」ボタンを有効化
                 await page.keyboard.type(part, delay=20)
                 await page.wait_for_timeout(300)
 
-                # InputEvent を明示的に dispatch して React の onChange をトリガー
+                # InputEvent dispatch で Lexical の EditorState を更新
                 await page.evaluate("""
                     (idx) => {
                         const areas = document.querySelectorAll('[contenteditable="true"]');
@@ -222,8 +219,35 @@ async def post_thread_to_threads_async(parts: list) -> str:
                         }));
                     }
                 """, i)
-                await page.wait_for_timeout(1200)
-                print(f"    入力完了 ({len(part)}文字)")
+                await page.wait_for_timeout(500)
+
+                actual = await areas[i].inner_text()
+                print(f"    入力確認: [{actual[:30]}] ({len(actual)}文字)")
+
+                # 最後のパート以外は「スレッドに追加」をクリック
+                if i < len(parts) - 1:
+                    add_selectors = [
+                        'text="Add to thread"',
+                        'text="スレッドに追加"',
+                        '[role="button"]:has-text("Add to thread")',
+                        '[role="button"]:has-text("スレッドに追加")',
+                        '[aria-label="Add to thread"]',
+                        '[aria-label="スレッドに追加"]',
+                    ]
+                    added = False
+                    for sel in add_selectors:
+                        try:
+                            btn = await page.wait_for_selector(sel, timeout=5000)
+                            if btn:
+                                await btn.click()
+                                print(f"    「スレッドに追加」クリック: {sel}")
+                                await page.wait_for_timeout(2000)  # 新エディタ生成を待つ
+                                added = True
+                                break
+                        except Exception:
+                            continue
+                    if not added:
+                        print(f"    警告: 「スレッドに追加」ボタンが見つかりませんでした（パート{i+1}）")
 
             # 投稿ボタンをクリック
             await page.screenshot(path="/tmp/threads_before_post.png")
@@ -259,7 +283,91 @@ def post_to_threads(text: str) -> str:
 
 
 def post_thread_to_threads(parts: list) -> str:
-    return asyncio.run(post_thread_to_threads_async(parts))
+    """セッションクッキーを使って Threads API に直接投稿（ツリー型）"""
+    import uuid
+    import requests
+
+    # セッションから cookies と csrftoken を取得
+    if THREADS_SESSION:
+        storage = json.loads(base64.b64decode(THREADS_SESSION).decode())
+    else:
+        with open(os.path.join(os.path.dirname(__file__), "session.json")) as f:
+            storage = json.load(f)
+
+    cookies = {c["name"]: c["value"] for c in storage.get("cookies", [])}
+    csrftoken = cookies.get("csrftoken", "")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "x-csrftoken": csrftoken,
+        "x-ig-app-id": "238260118697367",
+        "x-instagram-ajax": "0",
+        "x-asbd-id": "359341",
+        "x-bloks-version-id": "1363ee4ad31aa321b811ce30b2aacd0f644c2fb57f440040b43e585a4befa092",
+        "Referer": "https://www.threads.com/",
+        "Origin": "https://www.threads.com",
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+    }
+
+    url = "https://www.threads.com/api/v1/media/configure_text_only_post/"
+    # 全パートで共通のスレッドIDを生成
+    thread_context_id = str(uuid.uuid4())
+    reply_id = ""
+
+    print(f"ツリー型投稿開始（{len(parts)}パート）thread_id={thread_context_id}")
+    for i, part in enumerate(parts):
+        print(f"  パート{i+1}を投稿中...")
+
+        app_info = {
+            "community_flair_id": None,
+            "entry_point": "main_tab_bar",
+            "excluded_inline_media_ids": "[]",
+            "fediverse_composer_enabled": True,
+            "is_reply_approval_enabled": False,
+            "is_spoiler_media": False,
+            "link_attachment_url": None,
+            "ranking_info_token": None,
+            "reply_control": 0,
+            "self_thread_context_id": thread_context_id,
+            "snippet_attachment": None,
+            "special_effects_enabled_str": None,
+            "tag_header": None,
+            "text_with_entities": {"entities": [], "text": part},
+        }
+        if reply_id:
+            app_info["reply_id"] = reply_id
+
+        data = {
+            "audience": "default",
+            "barcelona_source_reply_id": reply_id,
+            "caption": part,
+            "creator_geo_gating_info": '{"whitelist_country_codes":[]}',
+            "cross_share_info": "",
+            "custom_accessibility_caption": "",
+            "gen_ai_detection_method": "",
+            "internal_features": "",
+            "is_meta_only_post": "",
+            "is_paid_partnership": "",
+            "is_upload_type_override_allowed": "1",
+            "music_params": "",
+            "publish_mode": "text_post",
+            "should_include_permalink": "true",
+            "text_post_app_info": json.dumps(app_info, ensure_ascii=False),
+        }
+
+        res = requests.post(url, data=data, headers=headers, cookies=cookies)
+        if res.status_code != 200:
+            raise Exception(f"パート{i+1}の投稿失敗: HTTP {res.status_code} {res.text[:200]}")
+
+        pk = res.json().get("media", {}).get("pk", "")
+        if not pk:
+            raise Exception(f"パート{i+1}: レスポンスに pk がありません: {res.text[:200]}")
+
+        print(f"    → 投稿完了 pk={pk}")
+        reply_id = pk  # 次のパートは常に直前のパートへの返信
+
+    print("ツリー型投稿完了")
+    return "posted"
 
 
 if __name__ == "__main__":
