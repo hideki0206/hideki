@@ -183,14 +183,15 @@ async def post_thread_to_threads_async(parts: list) -> str:
 
             print(f"ツリー型投稿開始（{len(parts)}パート）")
 
-            # 「Add to thread」プレースホルダーは元々contenteditable。
-            # ボタンクリック不要 — index=0,1,2...と順番にタイプするだけ。
-            # タイプすると次のプレースホルダーが自動で現れる。
+            # React contenteditable への入力:
+            # keyboard.type() はDOM上にテキストを挿入するが、headless ChromiumではReactの
+            # onChangeが発火しない。keyboard.type()後にInputEventをdispatchすることで
+            # ReactがDOMのテキストを読み取りstateを更新する。
             for i, part in enumerate(parts):
                 print(f"  パート{i+1}を入力中...")
 
-                # index=i のcontenteditable が出現するまで待機（最大8秒）
-                for _ in range(16):
+                # index=i のcontenteditable が出現するまで待機（最大10秒）
+                for _ in range(20):
                     areas = await page.query_selector_all('[contenteditable="true"]')
                     if len(areas) > i:
                         break
@@ -199,12 +200,29 @@ async def post_thread_to_threads_async(parts: list) -> str:
                     print(f"  警告: contenteditable[{i}]が現れず（スキップ）")
                     continue
 
-                # クリックしてフォーカス、キーボードで入力（React onChange を確実に発火）
                 await areas[i].scroll_into_view_if_needed()
                 await areas[i].click()
-                await page.wait_for_timeout(500)
-                await page.keyboard.type(part, delay=30)
-                await page.wait_for_timeout(1500)
+                await page.wait_for_timeout(300)
+
+                # keyboard.type() でDOMにテキストを挿入（headless CDPではinputイベントが発火しない）
+                await page.keyboard.type(part, delay=20)
+                await page.wait_for_timeout(300)
+
+                # InputEvent を明示的に dispatch して React の onChange をトリガー
+                await page.evaluate("""
+                    (idx) => {
+                        const areas = document.querySelectorAll('[contenteditable="true"]');
+                        const el = areas[idx];
+                        if (!el) return;
+                        el.dispatchEvent(new InputEvent('input', {
+                            inputType: 'insertText',
+                            bubbles: true,
+                            cancelable: false,
+                            composed: true
+                        }));
+                    }
+                """, i)
+                await page.wait_for_timeout(1200)
                 print(f"    入力完了 ({len(part)}文字)")
 
             # 投稿ボタンをクリック
