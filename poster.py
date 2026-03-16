@@ -240,23 +240,33 @@ async def post_thread_to_threads_async(parts: list) -> str:
 
                 # execCommand('insertText') でReact互換のinputイベントを発火する
                 # keyboard.type()はDOMを更新するがReactのonChangeが発火しない場合がある
-                success = await page.evaluate("""(text) => {
+                result = await page.evaluate("""(text) => {
                     try {
+                        const el = document.activeElement;
                         document.execCommand('selectAll', false, null);
                         document.execCommand('delete', false, null);
-                        return document.execCommand('insertText', false, text);
+                        const ok = document.execCommand('insertText', false, text);
+                        return {ok, tag: el.tagName, ce: el.contentEditable, text: el.textContent.substring(0, 30)};
                     } catch(e) {
-                        return false;
+                        return {ok: false, error: String(e)};
                     }
                 }""", part)
-                print(f"  execCommand結果: {success}")
-                if not success:
-                    # fallback: keyboard.type
+                print(f"  execCommand結果: {result}")
+                if not result.get('ok'):
                     await page.keyboard.type(part, delay=20)
                     print(f"  fallback keyboard.type 使用")
                 await page.wait_for_timeout(1000)
 
             await page.screenshot(path="/tmp/threads_before_post.png")
+
+            # 投稿直前に各contenteditableの内容を確認
+            area_contents = await page.evaluate("""() => {
+                const areas = document.querySelectorAll('[contenteditable="true"]');
+                return Array.from(areas).map((el, i) => ({
+                    i, len: el.textContent.length, preview: el.textContent.substring(0, 20)
+                }));
+            }""")
+            print(f"投稿直前のcontenteditable: {area_contents}")
             print("投稿ボタンを押しています...")
 
             # 投稿ボタン: モーダル内の「Post」ボタンを正確に探す
