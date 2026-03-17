@@ -91,11 +91,15 @@ def check_approvals(posts: list[dict]) -> list[dict]:
         clean = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
         clean = re.sub(r'\[rp\b[^\]]*\]', '', clean).strip()
 
-        if clean == "承認":
+        lines = [l.strip() for l in clean.splitlines() if l.strip()]
+        if "承認" in lines:
             decisions[slot] = {"status": "approved"}
-        elif re.match(r'^修正[：:]\s*\S', clean):
-            note = re.sub(r'^修正[：:]\s*', '', clean).strip()
-            decisions[slot] = {"status": "revision", "note": note}
+        else:
+            for line in lines:
+                m = re.match(r'^修正[：:]\s*(.+)', line)
+                if m:
+                    decisions[slot] = {"status": "revision", "note": m.group(1).strip()}
+                    break
 
     result = []
     for post in posts:
