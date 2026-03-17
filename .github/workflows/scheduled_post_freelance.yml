@@ -3,7 +3,7 @@ name: Scheduled Post to Threads (Freelance)
 on:
   schedule:
     - cron: '0 22 * * *'   # 朝07:00 JST
-    - cron: '0 3 * * *'    # 昼12:00 JST
+    - cron: '0 23 * * *'   # 朝08:00 JST
     - cron: '0 10 * * *'   # 夜19:00 JST
   workflow_dispatch:
     inputs:
@@ -47,7 +47,7 @@ jobs:
           HOUR=$(TZ=Asia/Tokyo date +%H)
           if [ "$HOUR" = "07" ]; then
             echo "slot=morning" >> $GITHUB_OUTPUT
-          elif [ "$HOUR" = "12" ]; then
+          elif [ "$HOUR" = "08" ]; then
             echo "slot=noon" >> $GITHUB_OUTPUT
           else
             echo "slot=evening" >> $GITHUB_OUTPUT

@@ -15,7 +15,7 @@ ALL_ACCOUNTS = [MY_ACCOUNT] + COMPETITOR_ACCOUNTS
 # 投稿スケジュール（JST）
 POST_TIMES = {
     "morning": "07:00",
-    "noon": "12:00",
+    "noon": "08:00",
     "evening": "19:00",
 }
 
